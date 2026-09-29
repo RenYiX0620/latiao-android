@@ -1,0 +1,40 @@
+# macOS
+.DS_Store
+
+# Node
+node_modules/
+npm-debug.log*
+.yarn/
+.pnpm-store/
+
+# RN / Android
+android/.gradle/
+android/app/build/
+android/build/
+*.apk
+*.aab
+*.keystore
+local.properties
+
+# iOS
+ios/Pods/
+ios/build/
+*.xcworkspace/xcuserdata/
+
+# 模型缓存（GGUF 很大，不入库）
+models/
+*.gguf
+
+# 环境
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# 测试/构建产物
+coverage/
+dist/
+build/

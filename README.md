@@ -49,6 +49,17 @@
 
 桌面版仓库：`RenYiX0620/Latiao`（本仓不依赖其构建链）。
 
-## 状态
+## 状态（POC 已立）
 
-刚建仓，尚未脚手架。下一步：RN 初始化 + 模型加载 POC。
+- [x] RN 0.76 工程（`LatiaoAndroid/`，TS）
+- [x] `llama.rn` 接入：`src/llama/engine.ts`（initLlama / 流式 completion）
+- [x] 对话 POC：`src/screens/ChatScreen.tsx`（填 GGUF 路径 → 加载 → 流式聊天）
+- [ ] 真机构建（本机无 Android SDK；llama.rn 原生产物下载遇证书错误，需重试或 CI）
+- [ ] 模型列表 / Hugging Face 下载 UI
+- [ ] 工具调用 + agent 循环
+
+### 运行前提（未完成项）
+
+1. 安装 Android Studio SDK 或配置 iOS 模拟器后才能 `run-android` / `run-ios`
+2. `npm install llama.rn` 默认 postinstall 会拉原生产物；若证书报错，先 `--ignore-scripts`，再手动执行 `node node_modules/llama.rn/install/download-native-artifacts.js`（或在正常网络重试）
+

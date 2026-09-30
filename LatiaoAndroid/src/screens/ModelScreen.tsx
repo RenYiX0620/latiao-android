@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Linking, Platform } from 'react-native';
 import {
   ActivityIndicator,
   FlatList,
@@ -19,7 +20,12 @@ import {
   searchHfGguf,
   type HfHit,
 } from '../models/download';
-import { importGgufFiles, importGgufFromFolder, isCancel } from '../models/importLocal';
+import {
+  importFromPath,
+  importGgufFiles,
+  importGgufFromFolder,
+  isCancel,
+} from '../models/importLocal';
 
 type RowState = { downloaded: boolean; pct: number; busy: boolean; error?: string };
 
@@ -50,6 +56,7 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
   const [searchErr, setSearchErr] = useState('');
   const [localFiles, setLocalFiles] = useState<string[]>([]);
   const [importMsg, setImportMsg] = useState('');
+  const [pathText, setPathText] = useState('');
 
   const refresh = useCallback(async () => {
     const next: Record<string, RowState> = {};
@@ -68,17 +75,30 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
     listLocalModels().then(setLocalFiles);
   }, [refresh]);
 
-  const afterImport = async (paths: string[], label: string) => {
-    if (paths.length === 0) {
-      setImportMsg(`${label}：未选中 .gguf`);
+  const afterImport = async (
+    result: { imported: string[]; skipped: string[]; error?: string },
+    label: string,
+  ) => {
+    const parts: string[] = [];
+    if (result.imported.length) {
+      parts.push(`${label}：已导入 ${result.imported.length} 个`);
     } else {
-      setImportMsg(`${label}：已导入 ${paths.length} 个`);
-      onPick(paths[0]);
+      parts.push(`${label}：未导入任何 .gguf`);
+    }
+    if (result.skipped.length) {
+      parts.push(`跳过 ${result.skipped.length} 个非 .gguf/失败`);
+    }
+    if (result.error) {
+      parts.push(result.error);
+    }
+    setImportMsg(parts.join('；'));
+    if (result.imported.length) {
+      onPick(result.imported[0]);
     }
     const files = await listLocalModels();
     setLocalFiles(files);
     refresh();
-    setTimeout(() => setImportMsg(''), 2500);
+    setTimeout(() => setImportMsg(''), 6000);
   };
 
   const download = useCallback(async (entry: ModelEntry) => {
@@ -169,8 +189,8 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
               style={[styles.btn, styles.btnPrimary, { flex: 1 }]}
               onPress={async () => {
                 try {
-                  const paths = await importGgufFiles();
-                  await afterImport(paths, '导入文件');
+                  const r = await importGgufFiles();
+                  await afterImport(r, '导入文件');
                 } catch (e) {
                   if (!isCancel(e)) setImportMsg(String(e));
                 }
@@ -182,8 +202,8 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
               style={[styles.btn, { flex: 1, backgroundColor: '#2a3a38' }]}
               onPress={async () => {
                 try {
-                  const paths = await importGgufFromFolder();
-                  await afterImport(paths, '导入文件夹');
+                  const r = await importGgufFromFolder();
+                  await afterImport(r, '导入文件夹');
                 } catch (e) {
                   if (!isCancel(e)) setImportMsg(String(e));
                 }
@@ -193,6 +213,47 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
             </Pressable>
           </View>
           {importMsg ? <Text style={styles.progress}>{importMsg}</Text> : null}
+          <Text style={[styles.hint, { marginBottom: 6 }]}>
+            找不到 .gguf？右上角 ⋮ 选「显示所有文件」，或把文件放到手机 Download 目录后用下面按路径导入。
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              placeholder="/sdcard/Download/xxx.gguf"
+              placeholderTextColor="#666"
+              autoCapitalize="none"
+              autoCorrect={false}
+              value={pathText}
+              onChangeText={setPathText}
+            />
+            <Pressable
+              style={[styles.btn, styles.btnPrimary]}
+              onPress={async () => {
+                if (!pathText.trim()) return;
+                const r = await importFromPath(pathText.trim());
+                await afterImport(r, '按路径导入');
+                if (r.imported.length) setPathText('');
+              }}
+            >
+              <Text style={styles.btnText}>导入</Text>
+            </Pressable>
+          </View>
+          <Pressable
+            style={[styles.btn, { backgroundColor: '#2a3a38', marginBottom: 12 }]}
+            onPress={() => {
+              if (Platform.OS === 'android') {
+                Linking.sendIntent('android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION', [
+                  { key: 'package', value: 'com.latiaoandroid' },
+                ]).catch(() => {
+                  Linking.openSettings().catch(() => undefined);
+                });
+              } else {
+                Linking.openSettings().catch(() => undefined);
+              }
+            }}
+          >
+            <Text style={styles.btnText}>授权文件访问（按路径导入需要）</Text>
+          </Pressable>
           {localFiles.length > 0 && (
             <View style={{ marginBottom: 10 }}>
               <Text style={styles.hint}>本机已导入（点选即用）</Text>

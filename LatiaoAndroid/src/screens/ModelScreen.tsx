@@ -281,22 +281,23 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
           {(localFiles.length > 0 || external.length > 0) && (
             <View style={{ marginBottom: 10 }}>
               <Text style={styles.hint}>本机已导入（点选即用，大模型不复制原地加载）</Text>
+              <View style={{ maxHeight: 220 }}>
               {localFiles.map(fp => (
-                <Pressable key={fp} onPress={() => onPick(fp)}>
-                  <Text style={styles.meta} numberOfLines={1}>
-                    📄 {fp.split('/').pop()}（沙箱）
+                <Pressable key={fp} style={styles.localRow} onPress={() => onPick(fp)}>
+                  <Text style={styles.localIcon}>📄</Text>
+                  <Text style={styles.localName} numberOfLines={1}>
+                    {fp.split('/').pop()}（沙箱）
                   </Text>
                 </Pressable>
               ))}
               {external.map(m => (
-                <View key={m.path} style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Pressable style={{ flex: 1 }} onPress={() => onPick(m.path)}>
-                    <Text style={styles.meta} numberOfLines={1}>
-                      📄 {m.name}
-                    </Text>
-                    <Text style={[styles.meta, { fontSize: 10 }]} numberOfLines={1}>
-                      {m.path}
-                    </Text>
+                <View key={m.path} style={styles.localRow}>
+                  <Pressable style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }} onPress={() => onPick(m.path)}>
+                    <Text style={styles.localIcon}>📄</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.localName} numberOfLines={1}>{m.name}</Text>
+                      <Text style={styles.localPath} numberOfLines={1}>{m.path}</Text>
+                    </View>
                   </Pressable>
                   <Pressable
                     onPress={async () => {
@@ -308,6 +309,7 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
                   </Pressable>
                 </View>
               ))}
+              </View>
             </View>
           )}
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
@@ -416,6 +418,15 @@ const styles = StyleSheet.create({
   name: { color: '#eee', fontSize: 15, fontWeight: '600' },
   meta: { color: '#888', fontSize: 12, marginTop: 4 },
   memBadge: { color: '#8ab4af', fontSize: 11, marginTop: 4 },
+  localRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 5,
+    gap: 8,
+  },
+  localIcon: { fontSize: 13 },
+  localName: { color: '#bbb', fontSize: 12, flex: 1 },
+  localPath: { color: '#666', fontSize: 10 },
   progress: { color: '#8ab4af', fontSize: 12, marginTop: 6 },
   error: { color: '#e07a7a', fontSize: 12, marginTop: 6 },
   input: {

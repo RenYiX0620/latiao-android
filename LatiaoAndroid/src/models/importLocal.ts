@@ -1,5 +1,9 @@
 import DocumentPicker, { isCancel } from 'react-native-document-picker';
-import ScopedStorage from 'react-native-scoped-storage';
+import {
+  listFiles as scopedListFiles,
+  openDocument as scopedOpenDocument,
+  openDocumentTree as scopedOpenDocumentTree,
+} from 'react-native-scoped-storage';
 import RNFS from 'react-native-fs';
 import { ensureModelsDir, MODELS_DIR } from './download';
 
@@ -55,14 +59,13 @@ function looksLikeModel(name: string): boolean {
 /** 主路径：scoped-storage 单文件选择（返回真实 path，零拷贝） */
 export async function importGgufFiles(): Promise<ImportResult> {
   try {
-    const f = await ScopedStorage.openDocument(false, 'utf8');
+    const f = await scopedOpenDocument(false, 'utf8');
     if (!f) {
       return { imported: [], skipped: [] };
     }
     const name = f.name || (f.path || f.uri || '').split('/').pop() || 'model.gguf';
-    const path = f.path && f.path !== 'undefined' && !f.path.startsWith('content:')
-      ? f.path
-      : f.uri;
+    const raw = (f.path && f.path !== 'undefined' ? f.path : f.uri) || '';
+    const path = toRealPath(raw);
     if (!looksLikeModel(name)) {
       // 仍接受：用户自己选的文件（可能是 Spark-xxx 无 .gguf 后缀）
       // 但要在结果里标注
@@ -99,27 +102,67 @@ export async function importGgufFiles(): Promise<ImportResult> {
   }
 }
 
-/** 选择文件夹：仅限子文件夹（Download 根目录系统拒绝） */
-export async function importGgufFromFolder(): Promise<ImportResult> {
-  let treeUri: string;
+/** content:// tree URI → 真路径（primary:Download/models → /storage/emulated/0/Download/models） */
+export function treeUriToPath(uri: string): string {
   try {
-    const dir = await DocumentPicker.pickDirectory();
-    if (!dir?.uri) {
+    const u = decodeURIComponent(uri);
+    // 兼容 tree/primary:xxx 与 document/primary:xxx
+    const m = u.match(/primary:(.+)$/);
+    if (m) {
+      return `/storage/emulated/0/${m[1].replace(/^\/+/, '')}`;
+    }
+  } catch {
+    /* fallthrough */
+  }
+  return '';
+}
+
+/** openDocument 返回的 content:// 也转真路径 */
+export function toRealPath(p: string): string {
+  if (!p) return '';
+  if (!p.startsWith('content:')) return p.replace('file://', '');
+  return treeUriToPath(p) || p;
+}
+
+/** 选择文件夹：仅限子文件夹（Download 根目录系统拒绝）。
+ *  目录树 URI 解析成 /storage/emulated/0/... 真路径后用 RNFS 读（配合所有文件权限），
+ *  不再依赖 scoped-storage listFiles（它要求读写双重 SAF 权限，常拒绝）。
+ */
+export async function importGgufFromFolder(): Promise<ImportResult> {
+  let treeUri = '';
+  let hint = '';
+  try {
+    // openDocumentTree 自己申请持久化权限，返回 uri/path
+    const dir = await scopedOpenDocumentTree(true);
+    if (!dir?.uri && !dir?.path) {
       return { imported: [], skipped: [] };
     }
-    treeUri = dir.uri;
+    treeUri = dir.uri || dir.path;
+    if (dir.path && !dir.path.startsWith('content:')) {
+      treeUri = dir.path;
+    }
   } catch (e) {
     if (isCancel(e)) {
       return { imported: [], skipped: [] };
     }
-    return { imported: [], skipped: [], error: String(e) };
+    return { imported: [], skipped: [], error: `选择文件夹失败：${String(e).slice(0, 120)}` };
   }
+
+  const realDir =
+    treeUri && !treeUri.startsWith('content:') ? treeUri : treeUriToPath(treeUri);
   const imported: string[] = [];
   const skipped: string[] = [];
+  if (!realDir) {
+    return {
+      imported,
+      skipped,
+      error: '无法解析该文件夹路径。请点「授权文件访问」后用路径导入。',
+    };
+  }
   try {
-    const entries = await ScopedStorage.listFiles(treeUri);
-    for (const e of entries) {
-      if (e.type !== 'file') {
+    const list = await RNFS.readDir(realDir);
+    for (const e of list) {
+      if (!e.isFile()) {
         continue;
       }
       const ok = /\.gguf$/i.test(e.name) || /gguf/i.test(e.name);
@@ -127,20 +170,22 @@ export async function importGgufFromFolder(): Promise<ImportResult> {
         skipped.push(e.name);
         continue;
       }
-      const p = e.path && e.path !== 'undefined' ? e.path : e.uri;
-      await registerModel(e.name, p);
-      imported.push(p);
+      await registerModel(e.name, e.path);
+      imported.push(e.path);
     }
     return {
       imported,
       skipped,
-      error:
-        imported.length === 0
-          ? `该目录没有 .gguf（共 ${entries.length} 项）。Download 根目录系统不允许，请选子文件夹。`
-          : undefined,
+      error: imported.length === 0
+        ? `${realDir} 内没有 .gguf（共 ${list.length} 项）。${hint}`
+        : undefined,
     };
   } catch (e) {
-    return { imported, skipped, error: `列出文件夹失败：${String(e).slice(0, 120)}` };
+    return {
+      imported,
+      skipped,
+      error: `读取 ${realDir} 失败：${String(e).slice(0, 100)}。点「授权文件访问」开启所有文件权限后重试。`,
+    };
   }
 }
 

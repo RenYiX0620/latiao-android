@@ -14,10 +14,12 @@ import {
   downloadGguf,
   downloadModel,
   isDownloaded,
+  listLocalModels,
   localPathFor,
   searchHfGguf,
   type HfHit,
 } from '../models/download';
+import { importGgufFiles, importGgufFromFolder, isCancel } from '../models/importLocal';
 
 type RowState = { downloaded: boolean; pct: number; busy: boolean; error?: string };
 
@@ -34,6 +36,8 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
   const [hits, setHits] = useState<HfHit[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchErr, setSearchErr] = useState('');
+  const [localFiles, setLocalFiles] = useState<string[]>([]);
+  const [importMsg, setImportMsg] = useState('');
 
   const refresh = useCallback(async () => {
     const next: Record<string, RowState> = {};
@@ -49,7 +53,21 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
 
   useEffect(() => {
     refresh();
+    listLocalModels().then(setLocalFiles);
   }, [refresh]);
+
+  const afterImport = async (paths: string[], label: string) => {
+    if (paths.length === 0) {
+      setImportMsg(`${label}：未选中 .gguf`);
+    } else {
+      setImportMsg(`${label}：已导入 ${paths.length} 个`);
+      onPick(paths[0]);
+    }
+    const files = await listLocalModels();
+    setLocalFiles(files);
+    refresh();
+    setTimeout(() => setImportMsg(''), 2500);
+  };
 
   const download = useCallback(async (entry: ModelEntry) => {
     setState(s => ({ ...s, [entry.id]: { ...s[entry.id], busy: true, pct: 0, error: undefined } }));
@@ -133,6 +151,47 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
       ListHeaderComponent={
         <View>
           <Text style={styles.hint}>从 Hugging Face 下载 GGUF，全部存本机 App 沙箱</Text>
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
+            <Pressable
+              style={[styles.btn, styles.btnPrimary, { flex: 1 }]}
+              onPress={async () => {
+                try {
+                  const paths = await importGgufFiles();
+                  await afterImport(paths, '导入文件');
+                } catch (e) {
+                  if (!isCancel(e)) setImportMsg(String(e));
+                }
+              }}
+            >
+              <Text style={styles.btnText}>导入 .gguf 文件</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.btn, { flex: 1, backgroundColor: '#2a3a38' }]}
+              onPress={async () => {
+                try {
+                  const paths = await importGgufFromFolder();
+                  await afterImport(paths, '导入文件夹');
+                } catch (e) {
+                  if (!isCancel(e)) setImportMsg(String(e));
+                }
+              }}
+            >
+              <Text style={styles.btnText}>选择文件夹</Text>
+            </Pressable>
+          </View>
+          {importMsg ? <Text style={styles.progress}>{importMsg}</Text> : null}
+          {localFiles.length > 0 && (
+            <View style={{ marginBottom: 10 }}>
+              <Text style={styles.hint}>本机已导入（点选即用）</Text>
+              {localFiles.map(fp => (
+                <Pressable key={fp} onPress={() => onPick(fp)}>
+                  <Text style={styles.meta} numberOfLines={1}>
+                    📄 {fp.split('/').pop()}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
             <TextInput
               style={[styles.input, { flex: 1 }]}

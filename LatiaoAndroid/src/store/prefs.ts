@@ -113,6 +113,8 @@ export type Pal = {
 };
 
 export type PrefsExt = Prefs & {
+  /** 上次选用的模型路径 */
+  modelPath: string;
   nThreads: number;
   /** none | tavily | brave */
   searchProvider: 'none' | 'tavily' | 'brave';
@@ -125,6 +127,7 @@ export type PrefsExt = Prefs & {
 
 export const DEFAULT_PREFS_EXT: PrefsExt = {
   ...DEFAULT_PREFS,
+  modelPath: '',
   nThreads: 2,
   searchProvider: 'none',
   searchApiKey: '',

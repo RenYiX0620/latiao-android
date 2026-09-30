@@ -5,7 +5,13 @@ import ModelScreen from './src/screens/ModelScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import SideDrawer, { type DrawerNav } from './src/screens/SideDrawer';
 import Onboarding from './src/screens/Onboarding';
-import { loadPrefsExt, loadSessions, newSession, savePrefsExt, type Session } from './src/store/prefs';
+import {
+  loadPrefsExt,
+  loadSessions,
+  newSession,
+  savePrefsExt,
+  type Session,
+} from './src/store/prefs';
 
 /**
  * 导航改为「抽屉 + 历史会话」（对标 PocketPal），不再是底部 tab。
@@ -25,6 +31,9 @@ function App(): JSX.Element {
       const prefs = await loadPrefsExt();
       if (!prefs.onboarded) {
         setOnboarding(true);
+      }
+      if (prefs.modelPath) {
+        setModelPath(prefs.modelPath);
       }
       const f = await loadSessions();
       if (f.activeId) {
@@ -67,6 +76,9 @@ function App(): JSX.Element {
             onPick={p => {
               setModelPath(p);
               setNav('chat');
+              loadPrefsExt()
+                .then(pref => savePrefsExt({ ...pref, modelPath: p }))
+                .catch(() => undefined);
             }}
           />
         )}

@@ -288,11 +288,17 @@ export default function ChatScreen({
             : '聊天'}
         </Text>
         <View style={styles.headerRight}>
-          {modelReady ? (
-            <Pressable style={styles.chip} onPress={onPickModels}>
-              <Text style={styles.chipText} numberOfLines={1}>
-                {shortPath || '模型'}
-              </Text>
+          {modelPath ? (
+            <Pressable
+              style={[styles.loadBtnSmall, modelReady && { backgroundColor: '#2a2a2e' }]}
+              onPress={modelReady ? onPickModels : onLoad}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={styles.btnText}>{modelReady ? '已加载' : '加载'}</Text>
+              )}
             </Pressable>
           ) : (
             <Pressable style={styles.loadBtnSmall} onPress={onPickModels}>

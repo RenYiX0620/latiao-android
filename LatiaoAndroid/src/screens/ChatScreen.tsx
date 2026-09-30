@@ -13,6 +13,8 @@ import {
 } from 'react-native';
 import { runAgentLoop, type AgentMsg } from '../agent/loop';
 import { getContext, isLoaded, loadModel, stopGenerate } from '../llama/engine';
+import DocumentPicker, { isCancel as isPickCancel } from 'react-native-document-picker';
+import RNFS from 'react-native-fs';
 import {
   loadPrefsExt,
   loadSessions,
@@ -79,6 +81,8 @@ export default function ChatScreen({
   const listRef = useRef<FlatList>(null);
   const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
+  /** 附件：{name, content} 会拼进下一条用户消息 */
+  const [attachment, setAttachment] = useState<{ name: string; content: string } | null>(null);
   const loadedRef = useRef(false);
 
   // 切换会话 / 设置变更 → 载入消息
@@ -163,7 +167,12 @@ export default function ChatScreen({
     busyRef.current = true;
     setBusy(true);
     setStatus('');
-    const userMsg: UiMsg = { id: `u-${Date.now()}`, role: 'user', content: text };
+    let userContent = text;
+    if (attachment) {
+      userContent = `【附件 ${attachment.name}】\n${attachment.content}\n\n【用户问题】${text}`;
+      setAttachment(null);
+    }
+    const userMsg: UiMsg = { id: `u-${Date.now()}`, role: 'user', content: userContent };
     const assistantId = `a-${Date.now()}`;
     setMessages(m => [...m, userMsg, { id: assistantId, role: 'assistant', content: '', streaming: true }]);
 
@@ -218,6 +227,39 @@ export default function ChatScreen({
       listRef.current?.scrollToEnd({ animated: true });
     }
   }, [input, messages, modelReady, persist]);
+
+  const pickAttachment = useCallback(async () => {
+    try {
+      const [file] = await DocumentPicker.pick({
+        allowMultiSelection: false,
+        copyTo: 'documentDirectory',
+        type: [DocumentPicker.types.allFiles],
+      });
+      const uri = file.fileCopyUri ?? file.uri;
+      if (!uri) {
+        return;
+      }
+      const path = uri.startsWith('file://') ? uri.slice(7) : uri;
+      // 只读文本类附件；二进制给个提示
+      const bin = /\.(gguf|png|jpe?g|gif|pdf|zip|mp[34])$/i.test(file.name ?? '');
+      if (bin) {
+        setStatus(`附件 ${file.name} 是二进制，暂不支持喂给模型`);
+        return;
+      }
+      const content = (await RNFS.readFile(path, 'utf8').catch(async () => {
+        return await RNFS.readFile(path, 'base64').then(() => '');
+      })).slice(0, 24000);
+      if (!content) {
+        setStatus('无法读取该文件为文本');
+        return;
+      }
+      setAttachment({ name: file.name ?? '附件', content });
+    } catch (e) {
+      if (!isPickCancel(e)) {
+        setStatus(String(e));
+      }
+    }
+  }, []);
 
   const onStop = useCallback(async () => {
     await stopGenerate();
@@ -317,7 +359,20 @@ export default function ChatScreen({
         />
       )}
 
+      {attachment && (
+        <View style={styles.attachBar}>
+          <Text style={styles.attachText} numberOfLines={1}>
+            📎 {attachment.name}
+          </Text>
+          <Pressable onPress={() => setAttachment(null)}>
+            <Text style={{ color: '#c66', paddingHorizontal: 8 }}>×</Text>
+          </Pressable>
+        </View>
+      )}
       <View style={styles.inputBar}>
+        <Pressable style={styles.attachBtn} onPress={pickAttachment} hitSlop={6}>
+          <Text style={{ color: '#8ab4af', fontSize: 20 }}>＋</Text>
+        </Pressable>
         <TextInput
           style={[styles.input, !modelReady && styles.inputDisabled]}
           placeholder={
@@ -437,6 +492,24 @@ const styles = StyleSheet.create({
   },
   inputDisabled: { opacity: 0.55 },
   stopBtn: { backgroundColor: '#8a3030' },
+  attachBtn: {
+    padding: 10,
+    backgroundColor: '#1c1c1f',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 10,
+    marginBottom: 6,
+    backgroundColor: '#1c1c1f',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  attachText: { flex: 1, color: '#8ab4af', fontSize: 12 },
   suggestWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',

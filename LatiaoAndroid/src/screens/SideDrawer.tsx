@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import RNFS from 'react-native-fs';
@@ -59,6 +60,8 @@ export default function SideDrawer({
   onNewSession,
 }: SideDrawerProps) {
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [renameId, setRenameId] = useState<string | null>(null);
+  const [renameText, setRenameText] = useState('');
 
   useEffect(() => {
     if (visible) {
@@ -109,6 +112,31 @@ export default function SideDrawer({
                     onPickSession(s);
                     onClose();
                   }}
+                  onLongPress={() => {
+                    Alert.alert(s.title || '未命名', '会话操作', [
+                      {
+                        text: '重命名',
+                        onPress: () => {
+                          setRenameText(s.title || '');
+                          setRenameId(s.id);
+                        },
+                      },
+                      {
+                        text: '删除',
+                        style: 'destructive',
+                        onPress: async () => {
+                          const f = await loadSessions();
+                          const next = {
+                            ...f,
+                            sessions: f.sessions.filter(x => x.id !== s.id),
+                          };
+                          await saveSessions(next);
+                          setSessions(next.sessions);
+                        },
+                      },
+                      { text: '取消', style: 'cancel' },
+                    ]);
+                  }}
                 >
                   <Text style={styles.sessionTitle} numberOfLines={1}>
                     {s.pinned ? '📌 ' : ''}
@@ -150,6 +178,48 @@ export default function SideDrawer({
           </ScrollView>
         </Pressable>
       </Pressable>
+
+      <Modal visible={!!renameId} transparent animationType="fade">
+        <View style={styles.renameWrap}>
+          <View style={styles.renameCard}>
+            <Text style={styles.renameTitle}>重命名会话</Text>
+            <TextInput
+              style={styles.renameInput}
+              value={renameText}
+              onChangeText={setRenameText}
+              placeholder="会话标题"
+              placeholderTextColor="#666"
+              autoFocus
+            />
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+              <Pressable
+                style={[styles.renameBtn, { backgroundColor: '#2a2a2e' }]}
+                onPress={() => setRenameId(null)}
+              >
+                <Text style={styles.renameBtnText}>取消</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.renameBtn, { backgroundColor: '#2f6f6a' }]}
+                onPress={async () => {
+                  if (!renameId) return;
+                  const f = await loadSessions();
+                  const next = {
+                    ...f,
+                    sessions: f.sessions.map(x =>
+                      x.id === renameId ? { ...x, title: renameText || x.title } : x,
+                    ),
+                  };
+                  await saveSessions(next);
+                  setSessions(next.sessions);
+                  setRenameId(null);
+                }}
+              >
+                <Text style={styles.renameBtnText}>保存</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Modal>
   );
 }
@@ -201,4 +271,31 @@ const styles = StyleSheet.create({
   sessionTitle: { color: '#ddd', fontSize: 14 },
   sessionTime: { color: '#666', fontSize: 11, marginTop: 3 },
   pinBtn: { color: '#8ab4af', fontSize: 15, paddingHorizontal: 6, paddingVertical: 10 },
+  renameWrap: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  renameCard: {
+    backgroundColor: '#1c1c20',
+    borderRadius: 14,
+    padding: 20,
+    width: '82%',
+    maxWidth: 320,
+  },
+  renameTitle: { color: '#eee', fontSize: 16, fontWeight: '600', marginBottom: 12 },
+  renameInput: {
+    backgroundColor: '#2a2a2e',
+    borderRadius: 8,
+    padding: 12,
+    color: '#eee',
+  },
+  renameBtn: {
+    flex: 1,
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  renameBtnText: { color: '#fff', fontWeight: '600' },
 });

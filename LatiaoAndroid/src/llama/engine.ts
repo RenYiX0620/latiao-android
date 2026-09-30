@@ -8,6 +8,8 @@ import { initLlama, type LlamaContext, type TokenData } from 'llama.rn';
 
 export type LoadProgress = (progress: number) => void;
 
+export type LoadOpts = { nCtx?: number; nGpuLayers?: number };
+
 let ctx: LlamaContext | null = null;
 
 export function isLoaded(): boolean {
@@ -21,17 +23,17 @@ export function getContext(): LlamaContext | null {
 export async function loadModel(
   modelPath: string,
   onProgress?: LoadProgress,
+  opts?: LoadOpts,
 ): Promise<LlamaContext> {
   if (ctx) {
     await ctx.release();
     ctx = null;
   }
-  // 小模型起手：CPU 也能跑；真机有 GPU 时 ngl 可调高
   ctx = await initLlama(
     {
       model: modelPath,
-      n_ctx: 4096,
-      n_gpu_layers: 4,
+      n_ctx: opts?.nCtx ?? 4096,
+      n_gpu_layers: opts?.nGpuLayers ?? 4,
     },
     onProgress,
   );

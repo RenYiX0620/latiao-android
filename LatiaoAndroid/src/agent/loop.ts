@@ -35,6 +35,8 @@ export type LoopCallbacks = {
   onToolEnd?: (name: string, ok: boolean, output: string) => void;
   askConfirm?: AskConfirm;
   log?: (line: string) => void;
+  /** 生成温度（来自设置页） */
+  temperature?: number;
 };
 
 function isConfirmTool(name: string): boolean {
@@ -56,7 +58,7 @@ export async function runAgentLoop(
       {
         messages: msgs as never,
         n_predict: 1024,
-        temperature: 0.7,
+        temperature: cb.temperature ?? 0.7,
         tools: toolsForModel(),
         parallel_tool_calls: false,
       },

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,9 +13,11 @@ import {
 } from 'react-native';
 import { runAgentLoop, type AgentMsg } from '../agent/loop';
 import { getContext, isLoaded, loadModel } from '../llama/engine';
+import { loadHistory, loadPrefs, saveHistory, type Prefs } from '../store/prefs';
 
 /**
- * 对话页：模型加载 + agent 循环（含工具调用与确认）。
+ * 对话页：模型加载 + agent 循环。
+ * 历史/偏好持久化到 App 沙箱 JSON —— 杀 App 重开不丢（对齐 PocketPal「历史搜索」的第一步）。
  */
 
 type UiMsg = { id: string; role: 'user' | 'assistant'; content: string; streaming?: boolean };
@@ -23,6 +25,8 @@ type UiMsg = { id: string; role: 'user' | 'assistant'; content: string; streamin
 export type ChatScreenProps = {
   modelPath: string;
   onPickModels: () => void;
+  /** 设置页保存后递增 → 重读 prefs/历史 */
+  prefsVersion?: number;
 };
 
 function askConfirmNative(toolName: string, args: Record<string, unknown>): Promise<boolean> {
@@ -39,15 +43,48 @@ function askConfirmNative(toolName: string, args: Record<string, unknown>): Prom
   });
 }
 
-export default function ChatScreen({ modelPath, onPickModels }: ChatScreenProps) {
+export default function ChatScreen({
+  modelPath,
+  onPickModels,
+  prefsVersion = 0,
+}: ChatScreenProps) {
   const [loading, setLoading] = useState(false);
   const [loadPct, setLoadPct] = useState(0);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<UiMsg[]>([]);
   const [status, setStatus] = useState('');
+  const prefsRef = useRef<Prefs | null>(null);
   const listRef = useRef<FlatList>(null);
   const busyRef = useRef(false);
   const loadedRef = useRef(false);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const [hist, prefs] = await Promise.all([loadHistory(), loadPrefs()]);
+      if (!alive) {
+        return;
+      }
+      prefsRef.current = prefs;
+      setMessages(
+        hist.map((m, i) => ({
+          id: `h-${i}-${m.ts ?? 0}-${m.role}`,
+          role: m.role,
+          content: m.content,
+        })),
+      );
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [prefsVersion]);
+
+  const persist = useCallback((list: UiMsg[]) => {
+    const clean = list
+      .filter(m => !m.streaming && m.content)
+      .map(m => ({ role: m.role, content: m.content, ts: Date.now() }));
+    saveHistory(clean).catch(() => undefined);
+  }, []);
 
   const onLoad = useCallback(async () => {
     if (!modelPath || loading) {
@@ -56,7 +93,12 @@ export default function ChatScreen({ modelPath, onPickModels }: ChatScreenProps)
     setLoading(true);
     setLoadPct(0);
     try {
-      await loadModel(modelPath, p => setLoadPct(Math.round(p * 100)));
+      const prefs = prefsRef.current ?? (await loadPrefs());
+      prefsRef.current = prefs;
+      await loadModel(modelPath, p => setLoadPct(Math.round(p * 100)), {
+        nCtx: prefs.nCtx,
+        nGpuLayers: prefs.nGpuLayers,
+      });
       loadedRef.current = true;
       setStatus('模型已加载');
     } catch (e) {
@@ -87,16 +129,10 @@ export default function ChatScreen({ modelPath, onPickModels }: ChatScreenProps)
       { id: assistantId, role: 'assistant', content: '', streaming: true },
     ]);
 
+    const prefs = prefsRef.current ?? (await loadPrefs());
     const history: AgentMsg[] = [
-      {
-        role: 'system',
-        content:
-          '你是辣条 Latiao 的手机版，中文回复，简洁。需要落文件时用 write_note 工具，不要自己编造文件路径。',
-      },
-      ...[...messages, userMsg].map(
-        m =>
-          ({ role: m.role, content: m.content }) as AgentMsg,
-      ),
+      { role: 'system', content: prefs.systemPrompt },
+      ...[...messages, userMsg].map(m => ({ role: m.role, content: m.content }) as AgentMsg),
     ];
 
     let acc = '';
@@ -106,6 +142,7 @@ export default function ChatScreen({ modelPath, onPickModels }: ChatScreenProps)
         throw new Error('模型未加载');
       }
       const full = await runAgentLoop(ctx, history, {
+        temperature: prefs.temperature,
         onAssistantText: tok => {
           acc += tok;
           setMessages(m =>
@@ -118,24 +155,30 @@ export default function ChatScreen({ modelPath, onPickModels }: ChatScreenProps)
         log: l => console.log(`[agent] ${l}`),
       });
       const out = full || acc;
-      setMessages(m =>
-        m.map(x => (x.id === assistantId ? { ...x, content: out, streaming: false } : x)),
-      );
+      setMessages(m => {
+        const updated = m.map(x =>
+          x.id === assistantId ? { ...x, content: out, streaming: false } : x,
+        );
+        persist(updated);
+        return updated;
+      });
       setStatus('');
     } catch (e) {
-      setMessages(m =>
-        m.map(x =>
+      setMessages(m => {
+        const updated = m.map(x =>
           x.id === assistantId
             ? { ...x, content: `出错了：${String(e)}`, streaming: false }
             : x,
-        ),
-      );
+        );
+        persist(updated);
+        return updated;
+      });
       setStatus('');
     } finally {
       busyRef.current = false;
       listRef.current?.scrollToEnd({ animated: true });
     }
-  }, [input, messages]);
+  }, [input, messages, persist]);
 
   const shortPath = modelPath ? modelPath.split('/').pop() : '未选模型';
 
@@ -149,14 +192,20 @@ export default function ChatScreen({ modelPath, onPickModels }: ChatScreenProps)
         <Text style={styles.modelName} numberOfLines={1}>
           {shortPath}
         </Text>
-        <Pressable style={[styles.loadBtn, (loading || !modelPath) && styles.btnDisabled]} onPress={onLoad} disabled={loading || !modelPath}>
-          {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnText}>加载</Text>}
+        <Pressable
+          style={[styles.loadBtn, (loading || !modelPath) && styles.btnDisabled]}
+          onPress={onLoad}
+          disabled={loading || !modelPath}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <Text style={styles.btnText}>加载</Text>
+          )}
         </Pressable>
       </Pressable>
       {(loading || status) && (
-        <Text style={styles.status}>
-          {loading ? `加载中 ${loadPct}%` : status}
-        </Text>
+        <Text style={styles.status}>{loading ? `加载中 ${loadPct}%` : status}</Text>
       )}
 
       <FlatList

@@ -2,19 +2,26 @@ import { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import ChatScreen from './src/screens/ChatScreen';
 import ModelScreen from './src/screens/ModelScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
 
-type Tab = 'chat' | 'models';
+type Tab = 'chat' | 'models' | 'settings';
 
 function App(): JSX.Element {
   const [tab, setTab] = useState<Tab>('chat');
   const [modelPath, setModelPath] = useState('');
+  const [prefsVersion, setPrefsVersion] = useState(0);
 
   return (
     <View style={styles.root}>
       <View style={styles.body}>
-        {tab === 'chat' ? (
-          <ChatScreen modelPath={modelPath} onPickModels={() => setTab('models')} />
-        ) : (
+        {tab === 'chat' && (
+          <ChatScreen
+            modelPath={modelPath}
+            onPickModels={() => setTab('models')}
+            prefsVersion={prefsVersion}
+          />
+        )}
+        {tab === 'models' && (
           <ModelScreen
             currentPath={modelPath}
             onPick={p => {
@@ -23,14 +30,28 @@ function App(): JSX.Element {
             }}
           />
         )}
+        {tab === 'settings' && (
+          <SettingsScreen onSaved={() => setPrefsVersion(v => v + 1)} />
+        )}
       </View>
       <View style={styles.tabbar}>
-        <Pressable style={[styles.tab, tab === 'chat' && styles.tabActive]} onPress={() => setTab('chat')}>
-          <Text style={[styles.tabText, tab === 'chat' && styles.tabTextActive]}>对话</Text>
-        </Pressable>
-        <Pressable style={[styles.tab, tab === 'models' && styles.tabActive]} onPress={() => setTab('models')}>
-          <Text style={[styles.tabText, tab === 'models' && styles.tabTextActive]}>模型</Text>
-        </Pressable>
+        {(
+          [
+            ['chat', '对话'],
+            ['models', '模型'],
+            ['settings', '设置'],
+          ] as const
+        ).map(([key, label]) => (
+          <Pressable
+            key={key}
+            style={[styles.tab, tab === key && styles.tabActive]}
+            onPress={() => setTab(key)}
+          >
+            <Text style={[styles.tabText, tab === key && styles.tabTextActive]}>
+              {label}
+            </Text>
+          </Pressable>
+        ))}
       </View>
     </View>
   );

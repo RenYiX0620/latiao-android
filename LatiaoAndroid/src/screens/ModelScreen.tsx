@@ -23,6 +23,18 @@ import { importGgufFiles, importGgufFromFolder, isCancel } from '../models/impor
 
 type RowState = { downloaded: boolean; pct: number; busy: boolean; error?: string };
 
+/** 内存需求提示（对标 PocketPal MemoryRequirement，按体积粗估） */
+function memHint(approxSize: string): string {
+  const n = parseFloat(approxSize.replace(/[^0-9.]/g, ''));
+  if (!n) {
+    return '';
+  }
+  if (approxSize.includes('GB') && n >= 1.5) {
+    return '⚡ 建议空闲 RAM ≥ 8GB';
+  }
+  return '✓ 一般手机可跑（建议 RAM ≥ 4GB）';
+}
+
 export type ModelScreenProps = {
   /** 选中后把本地路径交给聊天页加载 */
   onPick: (path: string) => void;
@@ -96,6 +108,7 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
             {item.approxSize}
             {item.note ? ` · ${item.note}` : ''}
           </Text>
+          <Text style={styles.memBadge}>{memHint(item.approxSize)}</Text>
           {st.busy && (
             <Text style={styles.progress}>下载中 {Math.round(st.pct * 100)}%</Text>
           )}
@@ -297,6 +310,7 @@ const styles = StyleSheet.create({
   cardMain: { flex: 1 },
   name: { color: '#eee', fontSize: 15, fontWeight: '600' },
   meta: { color: '#888', fontSize: 12, marginTop: 4 },
+  memBadge: { color: '#8ab4af', fontSize: 11, marginTop: 4 },
   progress: { color: '#8ab4af', fontSize: 12, marginTop: 6 },
   error: { color: '#e07a7a', fontSize: 12, marginTop: 6 },
   input: {

@@ -119,6 +119,8 @@ export type PrefsExt = Prefs & {
   searchApiKey: string;
   pals: Pal[];
   activePalId: string;
+  /** 是否已看过首次引导 */
+  onboarded: boolean;
 };
 
 export const DEFAULT_PREFS_EXT: PrefsExt = {
@@ -128,6 +130,7 @@ export const DEFAULT_PREFS_EXT: PrefsExt = {
   searchApiKey: '',
   pals: [],
   activePalId: '',
+  onboarded: false,
 };
 
 export async function loadPrefsExt(): Promise<PrefsExt> {

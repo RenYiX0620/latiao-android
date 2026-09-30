@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import { runAgentLoop, type AgentMsg } from '../agent/loop';
-import { getContext, isLoaded, loadModel } from '../llama/engine';
+import { getContext, isLoaded, loadModel, stopGenerate } from '../llama/engine';
 import {
   loadPrefsExt,
   loadSessions,
@@ -78,6 +78,7 @@ export default function ChatScreen({
   const prefsRef = useRef<PrefsExt | null>(null);
   const listRef = useRef<FlatList>(null);
   const busyRef = useRef(false);
+  const [busy, setBusy] = useState(false);
   const loadedRef = useRef(false);
 
   // 切换会话 / 设置变更 → 载入消息
@@ -160,6 +161,7 @@ export default function ChatScreen({
     }
     setInput('');
     busyRef.current = true;
+    setBusy(true);
     setStatus('');
     const userMsg: UiMsg = { id: `u-${Date.now()}`, role: 'user', content: text };
     const assistantId = `a-${Date.now()}`;
@@ -212,9 +214,19 @@ export default function ChatScreen({
       setStatus('');
     } finally {
       busyRef.current = false;
+      setBusy(false);
       listRef.current?.scrollToEnd({ animated: true });
     }
   }, [input, messages, modelReady, persist]);
+
+  const onStop = useCallback(async () => {
+    await stopGenerate();
+    setStatus('已停止');
+    setBusy(false);
+    busyRef.current = false;
+  }, []);
+
+  const SUGGESTED = ['现在几点？', '帮我记条笔记', '用一句话介绍你自己', '今天适合做什么'];
 
   const shortPath = modelPath ? modelPath.split('/').pop() : '';
   const showGuide = !modelReady;
@@ -291,7 +303,16 @@ export default function ChatScreen({
             </View>
           )}
           ListEmptyComponent={
-            <Text style={styles.empty}>问点什么，或让它用工具干活</Text>
+            <View style={{ marginTop: 32 }}>
+              <Text style={styles.empty}>问点什么，或让它用工具干活</Text>
+              <View style={styles.suggestWrap}>
+                {SUGGESTED.map(s => (
+                  <Pressable key={s} style={styles.suggestChip} onPress={() => setInput(s)}>
+                    <Text style={styles.suggestText}>{s}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
           }
         />
       )}
@@ -309,13 +330,19 @@ export default function ChatScreen({
           editable={modelReady}
           multiline
         />
-        <Pressable
-          style={[styles.sendBtn, (!input.trim() || !modelReady) && styles.btnDisabled]}
-          onPress={onSend}
-          disabled={!input.trim() || !modelReady}
-        >
-          <Text style={styles.btnText}>发</Text>
-        </Pressable>
+        {busy ? (
+          <Pressable style={[styles.sendBtn, styles.stopBtn]} onPress={onStop}>
+            <Text style={styles.btnText}>■</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            style={[styles.sendBtn, (!input.trim() || !modelReady) && styles.btnDisabled]}
+            onPress={onSend}
+            disabled={!input.trim() || !modelReady}
+          >
+            <Text style={styles.btnText}>发</Text>
+          </Pressable>
+        )}
       </View>
     </KeyboardAvoidingView>
   );
@@ -409,6 +436,22 @@ const styles = StyleSheet.create({
     maxHeight: 100,
   },
   inputDisabled: { opacity: 0.55 },
+  stopBtn: { backgroundColor: '#8a3030' },
+  suggestWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    marginTop: 18,
+  },
+  suggestChip: {
+    backgroundColor: '#1c1c1f',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  suggestText: { color: '#8ab4af', fontSize: 12 },
   sendBtn: {
     backgroundColor: '#2f6f6a',
     borderRadius: 12,

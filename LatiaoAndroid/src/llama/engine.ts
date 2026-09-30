@@ -41,6 +41,12 @@ export async function loadModel(
   return ctx;
 }
 
+export async function stopGenerate(): Promise<void> {
+  if (ctx) {
+    await ctx.stopCompletion().catch(() => undefined);
+  }
+}
+
 export async function unloadModel(): Promise<void> {
   if (ctx) {
     await ctx.release();

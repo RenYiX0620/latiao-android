@@ -4,7 +4,8 @@ import ChatScreen from './src/screens/ChatScreen';
 import ModelScreen from './src/screens/ModelScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import SideDrawer, { type DrawerNav } from './src/screens/SideDrawer';
-import { loadSessions, newSession, type Session } from './src/store/prefs';
+import Onboarding from './src/screens/Onboarding';
+import { loadPrefsExt, loadSessions, newSession, savePrefsExt, type Session } from './src/store/prefs';
 
 /**
  * 导航改为「抽屉 + 历史会话」（对标 PocketPal），不再是底部 tab。
@@ -16,10 +17,15 @@ function App(): JSX.Element {
   const [modelPath, setModelPath] = useState('');
   const [prefsVersion, setPrefsVersion] = useState(0);
   const [session, setSession] = useState<Session | null>(null);
+  const [onboarding, setOnboarding] = useState(false);
 
-  // 启动：恢复上次会话，没有则建新会话
+  // 启动：恢复上次会话，没有则建新会话；首次弹引导
   useEffect(() => {
     (async () => {
+      const prefs = await loadPrefsExt();
+      if (!prefs.onboarded) {
+        setOnboarding(true);
+      }
       const f = await loadSessions();
       if (f.activeId) {
         const found = f.sessions.find(s => s.id === f.activeId);
@@ -71,6 +77,16 @@ function App(): JSX.Element {
           />
         )}
       </View>
+
+      {onboarding && (
+        <Onboarding
+          onDone={async () => {
+            setOnboarding(false);
+            const prefs = await loadPrefsExt();
+            await savePrefsExt({ ...prefs, onboarded: true });
+          }}
+        />
+      )}
 
       <SideDrawer
         visible={drawerOpen}

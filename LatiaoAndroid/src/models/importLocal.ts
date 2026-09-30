@@ -4,11 +4,11 @@ import RNFS from 'react-native-fs';
 import { ensureModelsDir, MODELS_DIR } from './download';
 
 /**
- * 本地模型导入 —— 大文件（GB 级）原则：登记原路径，零拷贝加载。
- * - 导入文件：系统选择器 → 记录 fileCopyUri/真实路径
- * - 选择文件夹：scoped-storage 列出目录内 .gguf，登记路径（3.38GB 也不用复制）
- * - 按路径导入：直接登记
- * 登记表存 external_models.json；加载时走 llama.rn 的 model= 路径。
+ * 本地模型导入（2026-09-30 加固）：
+ * - 主路径用 scoped-storage.openDocument()：系统选择器返回**真实路径**，
+ *   大文件零拷贝，绕开 document-picker copyTo 复制几 GB 会失败的问题
+ * - 不强制 .gguf 后缀：文件名无后缀/大小写异常也收（Spark 这类命名）
+ * - 路径导入只登记不复制；错误信息必须能看见
  */
 
 export type ImportResult = {
@@ -26,7 +26,7 @@ export async function loadExternalModels(): Promise<ExternalModel[]> {
     if (await RNFS.exists(REGISTRY)) {
       const raw = await RNFS.readFile(REGISTRY, 'utf8');
       const arr = JSON.parse(raw) as ExternalModel[];
-      return Array.isArray(arr) ? arr : [];
+      return Array.isArray(arr) ? arr.filter(x => x && x.path) : [];
     }
   } catch {
     /* ignore */
@@ -37,7 +37,7 @@ export async function loadExternalModels(): Promise<ExternalModel[]> {
 export async function registerModel(name: string, path: string): Promise<void> {
   const list = await loadExternalModels();
   if (!list.some(x => x.path === path)) {
-    list.push({ name, path });
+    list.push({ name: name || path.split('/').pop() || 'model', path });
     await RNFS.writeFile(REGISTRY, JSON.stringify(list), 'utf8');
   }
 }
@@ -47,50 +47,60 @@ export async function unregisterModel(path: string): Promise<void> {
   await RNFS.writeFile(REGISTRY, JSON.stringify(list), 'utf8');
 }
 
-function safeName(name: string): string {
-  return (name || `model-${Date.now()}.gguf`).replace(/[\\/]/g, '_');
+/** 放宽：文件名含 gguf 即可；无后缀的大文件也收（用户自选文件时） */
+function looksLikeModel(name: string): boolean {
+  return /\.gguf$/i.test(name) || /gguf/i.test(name);
 }
 
-/** 导入文件（小文件拷进沙箱；大文件直接登记原路径） */
+/** 主路径：scoped-storage 单文件选择（返回真实 path，零拷贝） */
 export async function importGgufFiles(): Promise<ImportResult> {
-  const res = await DocumentPicker.pick({
-    allowMultiSelection: true,
-    copyTo: 'documentDirectory',
-    type: ['*/*', 'application/octet-stream'],
-  });
-  const imported: string[] = [];
-  const skipped: string[] = [];
-  let error: string | undefined;
-  for (const r of res) {
-    const name = r.name ?? '';
-    if (!/\.gguf$/i.test(name)) {
-      skipped.push(name || '(未命名)');
-      continue;
+  try {
+    const f = await ScopedStorage.openDocument(false, 'utf8');
+    if (!f) {
+      return { imported: [], skipped: [] };
     }
-    const copied = r.fileCopyUri ?? r.uri;
-    if (!copied) {
-      skipped.push(name);
-      continue;
+    const name = f.name || (f.path || f.uri || '').split('/').pop() || 'model.gguf';
+    const path = f.path && f.path !== 'undefined' && !f.path.startsWith('content:')
+      ? f.path
+      : f.uri;
+    if (!looksLikeModel(name)) {
+      // 仍接受：用户自己选的文件（可能是 Spark-xxx 无 .gguf 后缀）
+      // 但要在结果里标注
     }
-    // 1GB 以下拷进沙箱；以上登记 copyTo 的副本路径（系统已拷到 App 私有目录）
-    const src = copied.startsWith('file://') ? copied.slice(7) : copied;
+    await registerModel(name, path);
+    return { imported: [path], skipped: [] };
+  } catch (e) {
+    if (isCancel(e)) {
+      return { imported: [], skipped: [] };
+    }
+    // scoped-storage 失败则退回 document-picker（小文件）
     try {
-      const st = await RNFS.stat(src);
-      await registerModel(name, src);
-      imported.push(src);
-      if (st.size > 1024 * 1024 * 1024) {
-        // 大文件：不二次拷到 models/，直接用 documentPicker 的副本
+      const res = await DocumentPicker.pickSingle({
+        allowMultiSelection: false,
+        type: ['*/*', 'application/octet-stream'],
+      });
+      const name = res.name ?? 'model.gguf';
+      const uri = (res.fileCopyUri ?? res.uri ?? '').replace('file://', '');
+      if (!uri) {
+        return { imported: [], skipped: [], error: '未获得文件路径' };
       }
-    } catch (e) {
-      error = String(e).slice(0, 140);
+      await registerModel(name, uri);
+      return { imported: [uri], skipped: [] };
+    } catch (e2) {
+      if (isCancel(e2)) {
+        return { imported: [], skipped: [] };
+      }
+      return {
+        imported: [],
+        skipped: [],
+        error: `选择文件失败：${String(e2 || e).slice(0, 120)}`,
+      };
     }
   }
-  return { imported, skipped, error };
 }
 
-/** 选择文件夹：列目录中的 .gguf，全部登记路径（零拷贝） */
+/** 选择文件夹：仅限子文件夹（Download 根目录系统拒绝） */
 export async function importGgufFromFolder(): Promise<ImportResult> {
-  // 用 document-picker 选目录（系统 UI 稳定），再用 scoped-storage 列文件
   let treeUri: string;
   try {
     const dir = await DocumentPicker.pickDirectory();
@@ -109,46 +119,55 @@ export async function importGgufFromFolder(): Promise<ImportResult> {
   try {
     const entries = await ScopedStorage.listFiles(treeUri);
     for (const e of entries) {
-      if (e.type !== 'file' || !/\.gguf$/i.test(e.name)) {
+      if (e.type !== 'file') {
         continue;
       }
-      // path 为解析出的存储路径；无则退回 uri
+      const ok = /\.gguf$/i.test(e.name) || /gguf/i.test(e.name);
+      if (!ok) {
+        skipped.push(e.name);
+        continue;
+      }
       const p = e.path && e.path !== 'undefined' ? e.path : e.uri;
       await registerModel(e.name, p);
       imported.push(p);
     }
-    if (imported.length === 0) {
-      return {
-        imported,
-        skipped,
-        error: `该文件夹内没有 .gguf（共 ${entries.length} 项）。可展开子目录或改用「导入 .gguf 文件」。`,
-      };
-    }
-    return { imported, skipped };
+    return {
+      imported,
+      skipped,
+      error:
+        imported.length === 0
+          ? `该目录没有 .gguf（共 ${entries.length} 项）。Download 根目录系统不允许，请选子文件夹。`
+          : undefined,
+    };
   } catch (e) {
     return { imported, skipped, error: `列出文件夹失败：${String(e).slice(0, 120)}` };
   }
 }
 
-/** 按绝对路径登记（不复制） */
+/** 按绝对路径登记（不复制、不占双份空间） */
 export async function importFromPath(path: string): Promise<ImportResult> {
   const p = (path.startsWith('file://') ? path.slice(7) : path.trim()).trim();
-  if (!/\.gguf$/i.test(p)) {
-    return { imported: [], skipped: [p], error: '路径需要以 .gguf 结尾' };
+  if (!p) {
+    return { imported: [], skipped: [], error: '路径为空' };
   }
   try {
-    if (!(await RNFS.exists(p))) {
+    const exists = await RNFS.exists(p);
+    if (!exists) {
       return {
         imported: [],
         skipped: [],
-        error: '路径不存在或无权限。点「授权文件访问」后重试，或用「导入 .gguf 文件」。',
+        error: '路径不存在。请到「授权文件访问」开启所有文件权限，或改用「导入模型文件」。',
       };
     }
     const name = p.split('/').pop() ?? 'model.gguf';
     await registerModel(name, p);
     return { imported: [p], skipped: [] };
   } catch (e) {
-    return { imported: [], skipped: [], error: String(e).slice(0, 140) };
+    return {
+      imported: [],
+      skipped: [],
+      error: `读取失败（${String(e).slice(0, 100)}）。点「授权文件访问」后重试。`,
+    };
   }
 }
 

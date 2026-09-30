@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Linking, Platform } from 'react-native';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   StyleSheet,
@@ -102,6 +103,9 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
     }
     setImportMsg(parts.join('；'));
     if (result.imported.length) {
+      Alert.alert('导入成功', `已加入 ${result.imported.length} 个模型，可在下方列表点选加载`);
+    }
+    if (result.imported.length) {
       onPick(result.imported[0]);
     }
     await reloadLocal();
@@ -198,26 +202,32 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
               onPress={async () => {
                 try {
                   const r = await importGgufFiles();
-                  await afterImport(r, '导入文件');
+                  await afterImport(r, '选择模型文件');
+                  if (r.error) {
+                    Alert.alert('导入提示', r.error);
+                  }
                 } catch (e) {
-                  if (!isCancel(e)) setImportMsg(String(e));
+                  if (!isCancel(e)) Alert.alert('导入失败', String(e));
                 }
               }}
             >
-              <Text style={styles.btnText}>导入 .gguf 文件</Text>
+              <Text style={styles.btnText}>选择模型文件</Text>
             </Pressable>
             <Pressable
               style={[styles.btn, { flex: 1, backgroundColor: '#2a3a38' }]}
               onPress={async () => {
                 try {
                   const r = await importGgufFromFolder();
-                  await afterImport(r, '导入文件夹');
+                  await afterImport(r, '选择文件夹');
+                  if (r.error) {
+                    Alert.alert('导入提示', r.error);
+                  }
                 } catch (e) {
-                  if (!isCancel(e)) setImportMsg(String(e));
+                  if (!isCancel(e)) Alert.alert('导入失败', String(e));
                 }
               }}
             >
-              <Text style={styles.btnText}>选择文件夹</Text>
+              <Text style={styles.btnText}>选择文件夹(子目录)</Text>
             </Pressable>
           </View>
           {importMsg ? <Text style={styles.progress}>{importMsg}</Text> : null}
@@ -243,6 +253,9 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
                 if (!pathText.trim()) return;
                 const r = await importFromPath(pathText.trim());
                 await afterImport(r, '按路径导入');
+                if (r.error) {
+                  Alert.alert('路径导入', r.error);
+                }
                 if (r.imported.length) setPathText('');
               }}
             >

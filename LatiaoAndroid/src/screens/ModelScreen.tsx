@@ -25,6 +25,9 @@ import {
   importGgufFiles,
   importGgufFromFolder,
   isCancel,
+  loadExternalModels,
+  unregisterModel,
+  type ExternalModel,
 } from '../models/importLocal';
 
 type RowState = { downloaded: boolean; pct: number; busy: boolean; error?: string };
@@ -55,6 +58,7 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
   const [searching, setSearching] = useState(false);
   const [searchErr, setSearchErr] = useState('');
   const [localFiles, setLocalFiles] = useState<string[]>([]);
+  const [external, setExternal] = useState<ExternalModel[]>([]);
   const [importMsg, setImportMsg] = useState('');
   const [pathText, setPathText] = useState('');
 
@@ -70,10 +74,15 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
     setState(next);
   }, []);
 
+  const reloadLocal = useCallback(async () => {
+    setLocalFiles(await listLocalModels());
+    setExternal(await loadExternalModels());
+  }, []);
+
   useEffect(() => {
     refresh();
-    listLocalModels().then(setLocalFiles);
-  }, [refresh]);
+    reloadLocal();
+  }, [refresh, reloadLocal]);
 
   const afterImport = async (
     result: { imported: string[]; skipped: string[]; error?: string },
@@ -95,8 +104,7 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
     if (result.imported.length) {
       onPick(result.imported[0]);
     }
-    const files = await listLocalModels();
-    setLocalFiles(files);
+    await reloadLocal();
     refresh();
     setTimeout(() => setImportMsg(''), 6000);
   };
@@ -213,8 +221,11 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
             </Pressable>
           </View>
           {importMsg ? <Text style={styles.progress}>{importMsg}</Text> : null}
-          <Text style={[styles.hint, { marginBottom: 6 }]}>
-            找不到 .gguf？右上角 ⋮ 选「显示所有文件」，或把文件放到手机 Download 目录后用下面按路径导入。
+          <Text style={[styles.hint, { marginBottom: 6, lineHeight: 18 }]}>
+            · 选文件：直接点「导入 .gguf 文件」，在文件管理里选中模型文件{'\n'}
+            · 选文件夹：系统不允许授权 Download 根目录，请选**子文件夹**（如
+            Download/models）{'\n'}
+            · 大模型（>1GB）推荐：点下面「授权文件访问」→ 填绝对路径，**不复制、原地加载**
           </Text>
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
             <TextInput
@@ -254,15 +265,35 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
           >
             <Text style={styles.btnText}>授权文件访问（按路径导入需要）</Text>
           </Pressable>
-          {localFiles.length > 0 && (
+          {(localFiles.length > 0 || external.length > 0) && (
             <View style={{ marginBottom: 10 }}>
-              <Text style={styles.hint}>本机已导入（点选即用）</Text>
+              <Text style={styles.hint}>本机已导入（点选即用，大模型不复制原地加载）</Text>
               {localFiles.map(fp => (
                 <Pressable key={fp} onPress={() => onPick(fp)}>
                   <Text style={styles.meta} numberOfLines={1}>
-                    📄 {fp.split('/').pop()}
+                    📄 {fp.split('/').pop()}（沙箱）
                   </Text>
                 </Pressable>
+              ))}
+              {external.map(m => (
+                <View key={m.path} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Pressable style={{ flex: 1 }} onPress={() => onPick(m.path)}>
+                    <Text style={styles.meta} numberOfLines={1}>
+                      📄 {m.name}
+                    </Text>
+                    <Text style={[styles.meta, { fontSize: 10 }]} numberOfLines={1}>
+                      {m.path}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={async () => {
+                      await unregisterModel(m.path);
+                      await reloadLocal();
+                    }}
+                  >
+                    <Text style={{ color: '#c66', paddingHorizontal: 8 }}>×</Text>
+                  </Pressable>
+                </View>
               ))}
             </View>
           )}

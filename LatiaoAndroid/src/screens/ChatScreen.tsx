@@ -14,10 +14,10 @@ import {
 import { runAgentLoop, type AgentMsg } from '../agent/loop';
 import { getContext, isLoaded, loadModel } from '../llama/engine';
 import {
-  loadPrefs,
+  loadPrefsExt,
   loadSessions,
   saveSessions,
-  type Prefs,
+  type PrefsExt,
   type Session,
 } from '../store/prefs';
 
@@ -75,7 +75,7 @@ export default function ChatScreen({
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<UiMsg[]>([]);
   const [status, setStatus] = useState('');
-  const prefsRef = useRef<Prefs | null>(null);
+  const prefsRef = useRef<PrefsExt | null>(null);
   const listRef = useRef<FlatList>(null);
   const busyRef = useRef(false);
   const loadedRef = useRef(false);
@@ -86,7 +86,7 @@ export default function ChatScreen({
   }, [activeSession?.id, prefsVersion]);
 
   useEffect(() => {
-    loadPrefs().then(p => {
+    loadPrefsExt().then(p => {
       prefsRef.current = p;
     });
   }, [prefsVersion]);
@@ -134,11 +134,12 @@ export default function ChatScreen({
     setLoading(true);
     setLoadPct(0);
     try {
-      const prefs = prefsRef.current ?? (await loadPrefs());
+      const prefs = prefsRef.current ?? (await loadPrefsExt());
       prefsRef.current = prefs;
       await loadModel(modelPath, p => setLoadPct(Math.round(p * 100)), {
         nCtx: prefs.nCtx,
         nGpuLayers: prefs.nGpuLayers,
+        nThreads: prefs.nThreads,
       });
       loadedRef.current = true;
       setStatus('模型已加载');
@@ -164,9 +165,11 @@ export default function ChatScreen({
     const assistantId = `a-${Date.now()}`;
     setMessages(m => [...m, userMsg, { id: assistantId, role: 'assistant', content: '', streaming: true }]);
 
-    const prefs = prefsRef.current ?? (await loadPrefs());
+    const prefs = prefsRef.current ?? (await loadPrefsExt());
+    const activePal = prefs.pals.find(x => x.id === prefs.activePalId);
+    const sysPrompt = activePal?.systemPrompt || prefs.systemPrompt;
     const history: AgentMsg[] = [
-      { role: 'system', content: prefs.systemPrompt },
+      { role: 'system', content: sysPrompt },
       ...[...messages, userMsg].map(m => ({ role: m.role, content: m.content }) as AgentMsg),
     ];
 

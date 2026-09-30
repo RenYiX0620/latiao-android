@@ -73,6 +73,18 @@ export const TOOLS: ToolDef[] = [
   {
     type: 'function',
     function: {
+      name: 'web_search',
+      description: '联网搜索（需在设置里配置 Tavily 或 Brave API Key）',
+      parameters: {
+        type: 'object',
+        properties: { query: { type: 'string', description: '搜索关键词' } },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'fetch_url',
       description: '抓取一个 URL 的纯文本内容（截断到 4000 字符）',
       parameters: {
@@ -123,6 +135,48 @@ export async function executeTool(name: string, args: Record<string, unknown>): 
         const files = await RNFS.readDir(NOTES_DIR);
         const names = files.filter(f => f.isFile()).map(f => f.name);
         return { ok: true, output: names.length ? names.join('\n') : '（暂无笔记）' };
+      }
+
+      case 'web_search': {
+        const q = String(args.query ?? '');
+        // Key 与 provider 存在 prefs.json
+        const prefsRaw = await RNFS.readFile(`${RNFS.DocumentDirectoryPath}/prefs.json`, 'utf8').catch(() => '');
+        let provider = 'none';
+        let apiKey = '';
+        try {
+          const j = JSON.parse(prefsRaw || '{}');
+          provider = j.searchProvider ?? 'none';
+          apiKey = j.searchApiKey ?? '';
+        } catch { /* ignore */ }
+        if (!q) return { ok: false, output: 'query 必填' };
+        if (provider === 'none' || !apiKey) {
+          return { ok: false, output: '未配置搜索。请到「设置」填写 Tavily/Brave API Key。' };
+        }
+        if (provider === 'tavily') {
+          const r = await fetch('https://api.tavily.com/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api_key: apiKey, query: q, max_results: 5 }),
+          });
+          const j = await r.json();
+          const results = (j.results ?? []) as Array<{ title?: string; url?: string; content?: string }>;
+          return {
+            ok: true,
+            output: results.map(x => `## ${x.title}\n${x.url}\n${(x.content ?? '').slice(0, 300)}`).join('\n\n').slice(0, 4000) || '无结果',
+          };
+        }
+        if (provider === 'brave') {
+          const r = await fetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=5`, {
+            headers: { Accept: 'application/json', 'X-Subscription-Token': apiKey },
+          });
+          const j = await r.json();
+          const results = (j.web?.results ?? []) as Array<{ title?: string; url?: string; description?: string }>;
+          return {
+            ok: true,
+            output: results.map(x => `## ${x.title}\n${x.url}\n${(x.description ?? '').slice(0, 300)}`).join('\n\n').slice(0, 4000) || '无结果',
+          };
+        }
+        return { ok: false, output: `未知搜索提供商：${provider}` };
       }
 
       case 'fetch_url': {

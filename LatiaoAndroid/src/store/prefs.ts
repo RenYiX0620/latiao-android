@@ -73,6 +73,7 @@ export type Session = {
   title: string;
   ts: number;
   messages: ChatMsg[];
+  pinned?: boolean;
 };
 
 type SessionsFile = { sessions: Session[]; activeId: string };
@@ -100,5 +101,49 @@ export function newSession(): Session {
     title: '新对话',
     ts: Date.now(),
     messages: [],
+    pinned: false,
   };
+}
+
+// ── 扩展：线程 / 联网搜索 / Pals 人设 ─────────────────────────
+export type Pal = {
+  id: string;
+  name: string;
+  systemPrompt: string;
+};
+
+export type PrefsExt = Prefs & {
+  nThreads: number;
+  /** none | tavily | brave */
+  searchProvider: 'none' | 'tavily' | 'brave';
+  searchApiKey: string;
+  pals: Pal[];
+  activePalId: string;
+};
+
+export const DEFAULT_PREFS_EXT: PrefsExt = {
+  ...DEFAULT_PREFS,
+  nThreads: 2,
+  searchProvider: 'none',
+  searchApiKey: '',
+  pals: [],
+  activePalId: '',
+};
+
+export async function loadPrefsExt(): Promise<PrefsExt> {
+  const p = await readJson<Partial<PrefsExt>>('prefs.json', {});
+  return { ...DEFAULT_PREFS_EXT, ...p };
+}
+
+export async function savePrefsExt(p: PrefsExt): Promise<void> {
+  await writeJson('prefs.json', p);
+}
+
+/** 导出单个会话为 Markdown */
+export function sessionToMarkdown(s: Session): string {
+  const lines: string[] = [`# ${s.title || '未命名'}`, '', `> ${new Date(s.ts).toLocaleString()}`, ''];
+  for (const m of s.messages) {
+    lines.push(m.role === 'user' ? `## 你` : `## 助手`, '', m.content, '');
+  }
+  return lines.join('\n');
 }

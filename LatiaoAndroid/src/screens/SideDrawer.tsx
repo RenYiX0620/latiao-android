@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -7,10 +8,12 @@ import {
   Text,
   View,
 } from 'react-native';
+import RNFS from 'react-native-fs';
 import {
   loadSessions,
   newSession,
   saveSessions,
+  sessionToMarkdown,
   type Session,
 } from '../store/prefs';
 
@@ -99,19 +102,50 @@ export default function SideDrawer({
               <Text style={styles.emptyHistory}>暂无历史会话</Text>
             )}
             {sessions.map(s => (
-              <Pressable
-                key={s.id}
-                style={[styles.sessionRow, s.id === activeSessionId && styles.sessionRowActive]}
-                onPress={() => {
-                  onPickSession(s);
-                  onClose();
-                }}
-              >
-                <Text style={styles.sessionTitle} numberOfLines={1}>
-                  {s.title || '未命名'}
-                </Text>
-                <Text style={styles.sessionTime}>{fmtTime(s.ts)}</Text>
-              </Pressable>
+              <View key={s.id} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Pressable
+                  style={[styles.sessionRow, s.id === activeSessionId && styles.sessionRowActive, { flex: 1 }]}
+                  onPress={() => {
+                    onPickSession(s);
+                    onClose();
+                  }}
+                >
+                  <Text style={styles.sessionTitle} numberOfLines={1}>
+                    {s.pinned ? '📌 ' : ''}
+                    {s.title || '未命名'}
+                  </Text>
+                  <Text style={styles.sessionTime}>{fmtTime(s.ts)}</Text>
+                </Pressable>
+                <Pressable
+                  onPress={async () => {
+                    const f = await loadSessions();
+                    const next = {
+                      ...f,
+                      sessions: f.sessions.map(x =>
+                        x.id === s.id ? { ...x, pinned: !x.pinned } : x,
+                      ),
+                    };
+                    // 置顶排前
+                    next.sessions.sort((a, b) =>
+                      b.pinned === a.pinned ? b.ts - a.ts : b.pinned ? 1 : -1,
+                    );
+                    await saveSessions(next);
+                    setSessions(next.sessions);
+                  }}
+                >
+                  <Text style={styles.pinBtn}>{s.pinned ? '📌' : '☆'}</Text>
+                </Pressable>
+                <Pressable
+                  onPress={async () => {
+                    const md = sessionToMarkdown(s);
+                    const path = `${RNFS.DocumentDirectoryPath}/export-${s.id}.md`;
+                    await RNFS.writeFile(path, md, 'utf8');
+                    Alert.alert('已导出', path);
+                  }}
+                >
+                  <Text style={styles.pinBtn}>⬇</Text>
+                </Pressable>
+              </View>
             ))}
           </ScrollView>
         </Pressable>
@@ -166,4 +200,5 @@ const styles = StyleSheet.create({
   sessionRowActive: { backgroundColor: '#222226' },
   sessionTitle: { color: '#ddd', fontSize: 14 },
   sessionTime: { color: '#666', fontSize: 11, marginTop: 3 },
+  pinBtn: { color: '#8ab4af', fontSize: 15, paddingHorizontal: 6, paddingVertical: 10 },
 });

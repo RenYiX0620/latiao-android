@@ -8,7 +8,7 @@ import { initLlama, type LlamaContext, type TokenData } from 'llama.rn';
 
 export type LoadProgress = (progress: number) => void;
 
-export type LoadOpts = { nCtx?: number; nGpuLayers?: number };
+export type LoadOpts = { nCtx?: number; nGpuLayers?: number; nThreads?: number };
 
 let ctx: LlamaContext | null = null;
 
@@ -34,6 +34,7 @@ export async function loadModel(
       model: modelPath,
       n_ctx: opts?.nCtx ?? 4096,
       n_gpu_layers: opts?.nGpuLayers ?? 4,
+      n_threads: opts?.nThreads ?? 2,
     },
     onProgress,
   );

@@ -5,14 +5,18 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { MODEL_CATALOG, type ModelEntry } from '../models/catalog';
 import {
   deleteModel,
+  downloadGguf,
   downloadModel,
   isDownloaded,
   localPathFor,
+  searchHfGguf,
+  type HfHit,
 } from '../models/download';
 
 type RowState = { downloaded: boolean; pct: number; busy: boolean; error?: string };
@@ -26,6 +30,10 @@ export type ModelScreenProps = {
 
 export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: ModelScreenProps) {
   const [state, setState] = useState<Record<string, RowState>>({});
+  const [query, setQuery] = useState('');
+  const [hits, setHits] = useState<HfHit[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchErr, setSearchErr] = useState('');
 
   const refresh = useCallback(async () => {
     const next: Record<string, RowState> = {};
@@ -122,7 +130,87 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
       keyExtractor={m => m.id}
       renderItem={renderItem}
       contentContainerStyle={{ padding: 12 }}
-      ListHeaderComponent={<Text style={styles.hint}>从 Hugging Face 下载 GGUF，全部存本机 App 沙箱</Text>}
+      ListHeaderComponent={
+        <View>
+          <Text style={styles.hint}>从 Hugging Face 下载 GGUF，全部存本机 App 沙箱</Text>
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              placeholder="搜索 Hugging Face 模型…"
+              placeholderTextColor="#666"
+              value={query}
+              onChangeText={setQuery}
+              onSubmitEditing={async () => {
+                if (!query.trim()) return;
+                setSearching(true);
+                setSearchErr('');
+                try {
+                  setHits(await searchHfGguf(query.trim()));
+                } catch (e) {
+                  setSearchErr(String(e));
+                  setHits([]);
+                } finally {
+                  setSearching(false);
+                }
+              }}
+            />
+            <Pressable
+              style={[styles.btn, styles.btnPrimary]}
+              onPress={async () => {
+                if (!query.trim()) return;
+                setSearching(true);
+                setSearchErr('');
+                try {
+                  setHits(await searchHfGguf(query.trim()));
+                } catch (e) {
+                  setSearchErr(String(e));
+                  setHits([]);
+                } finally {
+                  setSearching(false);
+                }
+              }}
+            >
+              <Text style={styles.btnText}>{searching ? '…' : '搜索'}</Text>
+            </Pressable>
+          </View>
+          {searchErr ? <Text style={styles.error}>{searchErr}</Text> : null}
+          {hits.map(h => (
+            <View key={h.id} style={styles.card}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.name} numberOfLines={1}>{h.id}</Text>
+                <Text style={styles.meta}>下载 {h.downloads} · {h.ggufFiles[0]}</Text>
+              </View>
+              <Pressable
+                style={[styles.btn, styles.btnPrimary]}
+                onPress={async () => {
+                  const file = h.ggufFiles[0];
+                  const key = `hf-${h.id}-${file}`;
+                  setState(s => ({ ...s, [key]: { downloaded: false, pct: 0, busy: true } }));
+                  try {
+                    const path = await downloadGguf(h.id, file, pct => {
+                      setState(s => ({ ...s, [key]: { ...s[key], pct } }));
+                    });
+                    setState(s => ({ ...s, [key]: { downloaded: true, pct: 1, busy: false } }));
+                    onPick(path);
+                  } catch (e) {
+                    setState(s => ({
+                      ...s,
+                      [key]: { downloaded: false, pct: 0, busy: false, error: String(e) },
+                    }));
+                  }
+                }}
+              >
+                <Text style={styles.btnText}>
+                  {state[`hf-${h.id}-${h.ggufFiles[0]}`]?.busy
+                    ? `${Math.round((state[`hf-${h.id}-${h.ggufFiles[0]}`]?.pct ?? 0) * 100)}%`
+                    : '下载'}
+                </Text>
+              </Pressable>
+            </View>
+          ))}
+          <Text style={[styles.hint, { marginTop: 8 }]}>—— 内置精选 ——</Text>
+        </View>
+      }
     />
     </>
   );
@@ -152,6 +240,14 @@ const styles = StyleSheet.create({
   meta: { color: '#888', fontSize: 12, marginTop: 4 },
   progress: { color: '#8ab4af', fontSize: 12, marginTop: 6 },
   error: { color: '#e07a7a', fontSize: 12, marginTop: 6 },
+  input: {
+    backgroundColor: '#1c1c1f',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#eee',
+    fontSize: 14,
+  },
   actions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   btn: { borderRadius: 8, paddingHorizontal: 14, paddingVertical: 9, minWidth: 56, alignItems: 'center' },
   btnPrimary: { backgroundColor: '#2f6f6a' },

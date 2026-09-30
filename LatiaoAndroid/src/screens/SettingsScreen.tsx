@@ -5,6 +5,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  View,
 } from 'react-native';
 import {
   clearHistory,
@@ -21,9 +22,10 @@ import {
 
 type Props = {
   onSaved?: (p: Prefs) => void;
+  onOpenDrawer?: () => void;
 };
 
-export default function SettingsScreen({ onSaved }: Props) {
+export default function SettingsScreen({ onSaved, onOpenDrawer }: Props) {
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
   const [dirty, setDirty] = useState(false);
   const [toast, setToast] = useState('');
@@ -46,6 +48,13 @@ export default function SettingsScreen({ onSaved }: Props) {
   };
 
   return (
+    <>
+    <View style={styles.header}>
+      <Pressable style={styles.iconBtn} onPress={onOpenDrawer} hitSlop={8}>
+        <Text style={styles.iconText}>☰</Text>
+      </Pressable>
+      <Text style={styles.headerTitle}>设置</Text>
+    </View>
     <ScrollView style={styles.root} contentContainerStyle={{ padding: 16 }}>
       <Text style={styles.hint}>参数改动点保存；GPU 层/上下文在下次「加载模型」时生效</Text>
 
@@ -101,11 +110,16 @@ export default function SettingsScreen({ onSaved }: Props) {
         <Text style={styles.btnText}>清空对话历史</Text>
       </Pressable>
     </ScrollView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0e0e10' },
+  header: { flexDirection: 'row', alignItems: 'center', padding: 8, gap: 6 },
+  iconBtn: { padding: 8 },
+  iconText: { color: '#eee', fontSize: 20 },
+  headerTitle: { color: '#eee', fontSize: 16, fontWeight: '600' },
   hint: { color: '#777', fontSize: 12, marginBottom: 16 },
   label: { color: '#8ab4af', fontSize: 13, marginTop: 14, marginBottom: 6 },
   input: {

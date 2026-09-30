@@ -21,9 +21,10 @@ export type ModelScreenProps = {
   /** 选中后把本地路径交给聊天页加载 */
   onPick: (path: string) => void;
   currentPath?: string;
+  onOpenDrawer?: () => void;
 };
 
-export default function ModelScreen({ onPick, currentPath }: ModelScreenProps) {
+export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: ModelScreenProps) {
   const [state, setState] = useState<Record<string, RowState>>({});
 
   const refresh = useCallback(async () => {
@@ -108,6 +109,13 @@ export default function ModelScreen({ onPick, currentPath }: ModelScreenProps) {
   };
 
   return (
+    <>
+    <View style={styles.header}>
+      <Pressable style={styles.iconBtn} onPress={onOpenDrawer} hitSlop={8}>
+        <Text style={styles.iconText}>☰</Text>
+      </Pressable>
+      <Text style={styles.headerTitle}>模型</Text>
+    </View>
     <FlatList
       style={styles.root}
       data={MODEL_CATALOG}
@@ -116,11 +124,16 @@ export default function ModelScreen({ onPick, currentPath }: ModelScreenProps) {
       contentContainerStyle={{ padding: 12 }}
       ListHeaderComponent={<Text style={styles.hint}>从 Hugging Face 下载 GGUF，全部存本机 App 沙箱</Text>}
     />
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0e0e10' },
+  header: { flexDirection: 'row', alignItems: 'center', padding: 8, gap: 6 },
+  iconBtn: { padding: 8 },
+  iconText: { color: '#eee', fontSize: 20 },
+  headerTitle: { color: '#eee', fontSize: 16, fontWeight: '600' },
   hint: { color: '#777', fontSize: 12, marginBottom: 10 },
   card: {
     backgroundColor: '#1c1c1f',

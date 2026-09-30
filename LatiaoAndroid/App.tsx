@@ -1,76 +1,96 @@
-import { useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Platform, StyleSheet, View } from 'react-native';
 import ChatScreen from './src/screens/ChatScreen';
 import ModelScreen from './src/screens/ModelScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import SideDrawer, { type DrawerNav } from './src/screens/SideDrawer';
+import { loadSessions, newSession, type Session } from './src/store/prefs';
 
-type Tab = 'chat' | 'models' | 'settings';
+/**
+ * 导航改为「抽屉 + 历史会话」（对标 PocketPal），不再是底部 tab。
+ */
 
 function App(): JSX.Element {
-  const [tab, setTab] = useState<Tab>('chat');
+  const [nav, setNav] = useState<DrawerNav>('chat');
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [modelPath, setModelPath] = useState('');
   const [prefsVersion, setPrefsVersion] = useState(0);
+  const [session, setSession] = useState<Session | null>(null);
+
+  // 启动：恢复上次会话，没有则建新会话
+  useEffect(() => {
+    (async () => {
+      const f = await loadSessions();
+      if (f.activeId) {
+        const found = f.sessions.find(s => s.id === f.activeId);
+        if (found) {
+          setSession(found);
+          return;
+        }
+      }
+      if (f.sessions.length > 0) {
+        setSession(f.sessions[0]);
+        return;
+      }
+      setSession(newSession());
+    })();
+  }, []);
+
+  const onNewSession = useCallback((s: Session) => {
+    setSession(s);
+    setNav('chat');
+  }, []);
 
   return (
     <View style={styles.root}>
       <View style={styles.body}>
-        {tab === 'chat' && (
+        {nav === 'chat' && (
           <ChatScreen
             modelPath={modelPath}
-            onPickModels={() => setTab('models')}
+            onPickModels={() => setNav('models')}
+            onOpenDrawer={() => setDrawerOpen(true)}
             prefsVersion={prefsVersion}
+            activeSession={session}
+            onSessionChange={setSession}
           />
         )}
-        {tab === 'models' && (
+        {nav === 'models' && (
           <ModelScreen
             currentPath={modelPath}
+            onOpenDrawer={() => setDrawerOpen(true)}
             onPick={p => {
               setModelPath(p);
-              setTab('chat');
+              setNav('chat');
             }}
           />
         )}
-        {tab === 'settings' && (
-          <SettingsScreen onSaved={() => setPrefsVersion(v => v + 1)} />
+        {nav === 'settings' && (
+          <SettingsScreen
+            onOpenDrawer={() => setDrawerOpen(true)}
+            onSaved={() => setPrefsVersion(v => v + 1)}
+          />
         )}
       </View>
-      <View style={styles.tabbar}>
-        {(
-          [
-            ['chat', '对话'],
-            ['models', '模型'],
-            ['settings', '设置'],
-          ] as const
-        ).map(([key, label]) => (
-          <Pressable
-            key={key}
-            style={[styles.tab, tab === key && styles.tabActive]}
-            onPress={() => setTab(key)}
-          >
-            <Text style={[styles.tabText, tab === key && styles.tabTextActive]}>
-              {label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+
+      <SideDrawer
+        visible={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        nav={nav}
+        onNav={n => setNav(n)}
+        activeSessionId={session?.id ?? ''}
+        onPickSession={s => {
+          setSession(s);
+          setNav('chat');
+        }}
+        onNewSession={onNewSession}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0e0e10' },
+  root: { flex: 1, backgroundColor: '#0e0e10', paddingTop: Platform.OS === 'android' ? 28 : 44 },
   body: { flex: 1 },
-  tabbar: {
-    flexDirection: 'row',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#2a2a2d',
-    paddingBottom: Platform.OS === 'ios' ? 8 : 8,
-    backgroundColor: '#141416',
-  },
-  tab: { flex: 1, alignItems: 'center', paddingVertical: 14 },
-  tabActive: { borderTopWidth: 2, borderTopColor: '#2f6f6a' },
-  tabText: { color: '#777', fontSize: 13 },
-  tabTextActive: { color: '#8ab4af', fontWeight: '600' },
 });
 
 export default App;

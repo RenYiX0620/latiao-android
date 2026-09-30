@@ -66,3 +66,39 @@ export async function saveHistory(msgs: ChatMsg[]): Promise<void> {
 export async function clearHistory(): Promise<void> {
   await writeJson('history.json', []);
 }
+
+// ── 多会话历史（对齐 PocketPal 侧栏会话列表）────────────────────
+export type Session = {
+  id: string;
+  title: string;
+  ts: number;
+  messages: ChatMsg[];
+};
+
+type SessionsFile = { sessions: Session[]; activeId: string };
+
+export async function loadSessions(): Promise<SessionsFile> {
+  const f = await readJson<SessionsFile>('sessions.json', {
+    sessions: [],
+    activeId: '',
+  });
+  return f;
+}
+
+export async function saveSessions(f: SessionsFile): Promise<void> {
+  // 限制 30 个会话，每会话 100 条
+  const sessions = f.sessions.slice(0, 30).map(s => ({
+    ...s,
+    messages: s.messages.slice(-100),
+  }));
+  await writeJson('sessions.json', { sessions, activeId: f.activeId });
+}
+
+export function newSession(): Session {
+  return {
+    id: `s-${Date.now()}`,
+    title: '新对话',
+    ts: Date.now(),
+    messages: [],
+  };
+}

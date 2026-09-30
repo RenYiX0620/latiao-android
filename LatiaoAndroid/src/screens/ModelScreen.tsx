@@ -225,7 +225,7 @@ export default function ModelScreen({ onPick, currentPath, onOpenDrawer }: Model
             · 选文件：直接点「导入 .gguf 文件」，在文件管理里选中模型文件{'\n'}
             · 选文件夹：系统不允许授权 Download 根目录，请选**子文件夹**（如
             Download/models）{'\n'}
-            · 大模型（>1GB）推荐：点下面「授权文件访问」→ 填绝对路径，**不复制、原地加载**
+            · 大模型（1GB 以上）推荐：点下面「授权文件访问」→ 填绝对路径，**不复制、原地加载**
           </Text>
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
             <TextInput

@@ -70,12 +70,16 @@ export async function downloadModel(
   let lastErr: Error = new Error('下载失败');
   for (const url of resolveUrls(entry)) {
     try {
+      let expectedBytes = 0;
       const job = RNFS.downloadFile({
         fromUrl: url,
         toFile: dest,
         background: false,
         progressDivider: 2,
         progress: res => {
+          if (res.contentLength > 0) {
+            expectedBytes = res.contentLength;
+          }
           if (onProgress && res.contentLength > 0) {
             onProgress(
               res.bytesWritten / res.contentLength,
@@ -90,6 +94,13 @@ export async function downloadModel(
 
       if (result.statusCode === 200 || result.statusCode === 0) {
         const stat = await RNFS.stat(dest);
+        // 服务器给了长度就必须对上：截断的文件以前会被当成"下载成功"，
+        // 然后在加载时报一句没头没尾的 Unknown error
+        if (expectedBytes > 0 && stat.size !== expectedBytes) {
+          throw new Error(
+            `下载不完整：收到 ${(stat.size / 1e6).toFixed(1)}MB / 应为 ${(expectedBytes / 1e6).toFixed(1)}MB`,
+          );
+        }
         if (stat.size > 1024 * 1024) {
           return dest;
         }
@@ -250,11 +261,15 @@ export async function downloadGguf(
   let lastErr: Error = new Error('下载失败');
   for (const host of HF_HOSTS) {
     try {
+      let expectedBytes = 0;
       const job = RNFS.downloadFile({
         fromUrl: `${host}/${repo}/resolve/main/${file}`,
         toFile: dest,
         progressDivider: 2,
         progress: res => {
+          if (res.contentLength > 0) {
+            expectedBytes = res.contentLength;
+          }
           if (onProgress && res.contentLength > 0) {
             onProgress(res.bytesWritten / res.contentLength, res.bytesWritten, res.contentLength);
           }
@@ -264,6 +279,11 @@ export async function downloadGguf(
       const result = await job.promise;
       if (result.statusCode === 200 || result.statusCode === 0) {
         const stat = await RNFS.stat(dest);
+        if (expectedBytes > 0 && stat.size !== expectedBytes) {
+          throw new Error(
+            `下载不完整：收到 ${(stat.size / 1e6).toFixed(1)}MB / 应为 ${(expectedBytes / 1e6).toFixed(1)}MB`,
+          );
+        }
         if (stat.size > 1024 * 1024) {
           return dest;
         }

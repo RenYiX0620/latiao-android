@@ -49,11 +49,37 @@ const readDir = jest.fn(async dir => {
   }
   return out;
 });
-const stat = jest.fn(async p => ({ size: (files.get(p) ?? '').length }));
+const stat = jest.fn(async p => {
+  if (!files.has(p)) {
+    throw new Error(`ENOENT: ${p}`);
+  }
+  return { size: files.get(p).length };
+});
+/** 切片读取（RNFS.read(path, length, position, encoding)）——模型头预检用 */
+const read = jest.fn(async (p, length, position, encoding) => {
+  const content = files.get(p);
+  if (content === undefined) {
+    throw new Error(`ENOENT: ${p}`);
+  }
+  const buf = Buffer.from(content, 'utf8').subarray(position, position + length);
+  return buf.toString(encoding === 'base64' ? 'base64' : 'utf8');
+});
 const copyFile = jest.fn(async (from, to) => {
   files.set(to, files.get(from) ?? '');
 });
-const downloadFile = jest.fn(() => ({ promise: jest.fn(async () => ({ statusCode: 200 })) }));
+let downloadPlan = null; // { statusCode, bodyBytes, contentLength }
+const downloadFile = jest.fn(({ toFile, progress }) => {
+  const plan = downloadPlan || { statusCode: 200, bodyBytes: 2 * 1024 * 1024, contentLength: null };
+  const body = 'x'.repeat(plan.bodyBytes);
+  files.set(toFile, body);
+  if (progress) {
+    progress({
+      bytesWritten: plan.bodyBytes,
+      contentLength: plan.contentLength == null ? plan.bodyBytes : plan.contentLength,
+    });
+  }
+  return { jobId: 1, promise: Promise.resolve({ statusCode: plan.statusCode }) };
+});
 
 /** 磁盘信息：默认给足空间，测试里可以改 __fs.setFreeSpace 制造空间不足 */
 let freeSpace = 64 * 1e9;
@@ -70,6 +96,7 @@ module.exports = {
   mkdir,
   readDir,
   stat,
+  read,
   copyFile,
   downloadFile,
   getFSInfo,
@@ -83,6 +110,9 @@ module.exports = {
     keys: () => [...files.keys()],
     setFreeSpace: n => {
       freeSpace = n;
+    },
+    setDownloadPlan: p => {
+      downloadPlan = p;
     },
   },
 };

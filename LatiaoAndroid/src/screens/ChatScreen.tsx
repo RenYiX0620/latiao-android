@@ -27,6 +27,7 @@ import {
 } from '../llama/engine';
 import DocumentPicker, { isCancel as isPickCancel } from 'react-native-document-picker';
 import RNFS from 'react-native-fs';
+import { checkModelFile, loadFailureHint } from '../models/modelCheck';
 import {
   attachmentMarker,
   buildUserContent,
@@ -211,6 +212,14 @@ const [loading, setLoading] = useState(false);
       const prefs = prefsRef.current ?? (await loadPrefsExt());
       prefsRef.current = prefs;
       const rp = resolveParams(prefs, modelPath);
+      // 先自己看一眼文件：坏文件/没下完时原生只会抛一句 Unknown error
+      const check = await checkModelFile(modelPath);
+      if (!check.ok) {
+        console.warn('[load] precheck blocked', check.kind, check.reason);
+        setStatus(`${check.reason} · ${check.nextSteps}`);
+        setNotice(`${check.reason} —— ${check.nextSteps}`);
+        return;
+      }
       // 视觉：模型旁边有唯一投影器就一并加载（找不到就纯文本，不猜）
       const projector = await findProjector(modelPath);
       await loadModel(
@@ -264,6 +273,9 @@ const [loading, setLoading] = useState(false);
       setEngineTick(t => t + 1);
       console.warn('[load] failed', e);
       setStatus(i18n('chat.loadFailed', { msg: String(e) }));
+      const hint = loadFailureHint();
+      setNotice(`${hint.reason}
+${hint.nextSteps}`);
     } finally {
       setLoading(false);
     }

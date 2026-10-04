@@ -22,6 +22,7 @@ import {
 } from '../store/prefs';
 import { useTheme, type Theme, type ThemeMode } from '../theme';
 import { useT, type Lang, type MsgKey } from '../i18n';
+import { ensureTts, speakText, speechLangFor, type TtsStatus } from '../tts';
 
 /**
  * 设置：模型参数 + 联网搜索 Key + Pals 人设 + 清会话。
@@ -57,10 +58,24 @@ export default function SettingsScreen({
   const [palPrompt, setPalPrompt] = useState('');
   /** 正在编辑中的数字文本（未提交） */
   const [editing, setEditing] = useState<Record<string, string>>({});
+  /** 系统语音可用性（进页面时探一次） */
+  const [tts, setTts] = useState<TtsStatus | null>(null);
 
   useEffect(() => {
     loadPrefsExt().then(p => setPrefs(p));
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+    ensureTts(speechLangFor(lang)).then(st => {
+      if (alive) {
+        setTts(st);
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [lang]);
 
   const patch = (p: Partial<PrefsExt>) => {
     setPrefs(s => ({ ...s, ...p }));
@@ -374,6 +389,42 @@ export default function SettingsScreen({
           value={prefs.systemPrompt}
           onChangeText={v => patch({ systemPrompt: v })}
         />
+
+        <Text style={styles.sectionTitle}>{i18n('settings.tts')}</Text>
+        <Text style={styles.hint}>{i18n('settings.ttsHint')}</Text>
+        <Text style={styles.hint}>
+          {tts === null
+            ? i18n('settings.ttsChecking')
+            : tts.available
+              ? i18n('settings.ttsReady', { engine: tts.engine })
+              : i18n('settings.ttsUnavailable', { reason: tts.reason })}
+        </Text>
+        {tts && !tts.available ? (
+          <Text style={styles.hint}>{tts.nextSteps}</Text>
+        ) : null}
+        <View style={styles.switchRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.label}>{i18n('settings.ttsAuto')}</Text>
+          </View>
+          <Switch
+            value={prefs.ttsAutoSpeak}
+            onValueChange={v => patch({ ttsAutoSpeak: v })}
+            trackColor={{ false: t.switchOff, true: t.accent }}
+            thumbColor={t.surface}
+          />
+        </View>
+        <Pressable
+          style={[styles.btn, styles.btnGhost]}
+          onPress={async () => {
+            const r = await speakText(i18n('settings.ttsSample'), { lang: speechLangFor(lang) });
+            if (!r.ok) {
+              setToast(`${r.reason} · ${r.nextSteps}`);
+              setTimeout(() => setToast(''), 4000);
+            }
+          }}
+        >
+          <Text style={styles.btnText}>{i18n('settings.ttsTry')}</Text>
+        </Pressable>
 
         <Text style={styles.sectionTitle}>{i18n('settings.search')}</Text>
         <View style={styles.rowBtns}>

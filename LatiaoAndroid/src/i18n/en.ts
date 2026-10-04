@@ -167,6 +167,17 @@ export const en: Record<keyof typeof zh, string> = {
   'model.memTight': '⚠️ needs about {total}GB free RAM (8GB device recommended) {note}',
   'model.memOk': '✓ about {total}GB free RAM {note}',
 
+  'settings.tts': 'Read aloud',
+  'settings.ttsHint':
+    'Use the system voice to read replies out (offline, no network; a better on-device voice is planned)',
+  'settings.ttsAuto': 'Speak replies automatically',
+  'settings.ttsSample': 'Hi, this is Latiao, reading this sentence with the system voice.',
+  'settings.ttsTry': 'Try it',
+  'settings.ttsChecking': 'Checking system speech…',
+  'settings.ttsReady': 'Available: {engine}',
+  'settings.ttsUnavailable': 'Unavailable: {reason}',
+  'chat.speak': 'Read this out',
+  'chat.stopSpeak': 'Stop reading',
   'settings.title': 'Settings',
   'settings.topHint':
     'Tap save to apply; GPU/threads/context take effect the next time you load a model',

@@ -48,7 +48,8 @@ import {
 } from '../store/prefs';
 import ThinkingBlock from '../components/ThinkingBlock';
 import { useTheme, type Theme } from '../theme';
-import { useT, type MsgKey, type TFn } from '../i18n';
+import { useT, type MsgKey, type TFn, type Lang } from '../i18n';
+import { speakText, speechLangFor, stopSpeaking } from '../tts';
 
 /**
  * 对话页：
@@ -74,6 +75,8 @@ type UiMsg = {
 
 export type ChatScreenProps = {
   modelPath: string;
+  /** 界面语言（决定朗读用哪套系统语音） */
+  lang?: Lang;
   onPickModels: () => void;
   onOpenDrawer: () => void;
   onOpenSettings?: () => void;
@@ -142,6 +145,7 @@ function fmtStats(i18n: TFn, st: LoopTelemetry): string {
 
 export default function ChatScreen({
   modelPath,
+  lang = 'zh',
   onPickModels,
   onOpenDrawer,
   onOpenSettings,
@@ -171,6 +175,8 @@ const [loading, setLoading] = useState(false);
   /** 加大上下文面板 */
   const [ctxPick, setCtxPick] = useState(false);
   const [ctxBusy, setCtxBusy] = useState(false);
+  /** 正在朗读的消息 id（null = 没在念） */
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
   /** 附件：文本附件或图片（图片只有视觉模型能用） */
   const [attachment, setAttachment] = useState<Attachment | null>(null);
 
@@ -309,11 +315,35 @@ const [loading, setLoading] = useState(false);
     [activeSession, onSessionChange, i18n],
   );
 
+  /** 朗读一条助手消息（再点一次 = 停） */
+  const speakMessage = useCallback(
+    async (id: string, text: string) => {
+      if (speakingId === id) {
+        await stopSpeaking();
+        setSpeakingId(null);
+        return;
+      }
+      await stopSpeaking();
+      setSpeakingId(id);
+      const r = await speakText(text, {
+        lang: speechLangFor(lang),
+        onDone: () => setSpeakingId(cur => (cur === id ? null : cur)),
+      });
+      if (!r.ok) {
+        setSpeakingId(null);
+        setNotice(`${r.reason} · ${r.nextSteps}`);
+      }
+    },
+    [lang, speakingId],
+  );
+
   const onSend = useCallback(async () => {
     const text = input.trim();
     if (!text || busyRef.current || !readyThisPath) {
       return;
     }
+    void stopSpeaking();
+    setSpeakingId(null);
     setInput('');
     busyRef.current = true;
     stopRef.current = false;
@@ -398,6 +428,9 @@ const [loading, setLoading] = useState(false);
       // 一次性替换整份列表（不在 updater 里做副作用，避免 React 渲染期 setState 警告）
       setMessages([...messages, userMsg, finalMsg]);
       await persist([...messages, userMsg, finalMsg]);
+      if (prefs.ttsAutoSpeak && res.text) {
+        void speakMessage(assistantId, res.text);
+      }
       if (res.telemetry.contextFull || res.telemetry.promptTokens > rp.nCtx * 0.8) {
         setContextWarn({ used: res.telemetry.promptTokens, total: rp.nCtx });
       } else {
@@ -423,7 +456,7 @@ const [loading, setLoading] = useState(false);
       setStopping(false);
       listRef.current?.scrollToEnd({ animated: true });
     }
-  }, [input, messages, readyThisPath, persist, patchMsg, attachment, modelPath, i18n]);
+  }, [input, messages, readyThisPath, persist, patchMsg, attachment, modelPath, i18n, speakMessage]);
 
   const pickAttachment = useCallback(async () => {
     try {
@@ -472,6 +505,13 @@ const [loading, setLoading] = useState(false);
       }
     }
   }, [, i18n]);
+
+  // 离开页面时别让语音继续念
+  useEffect(() => {
+    return () => {
+      void stopSpeaking();
+    };
+  }, []);
 
   const onStop = useCallback(async () => {
     stopRef.current = true;
@@ -653,8 +693,22 @@ const [loading, setLoading] = useState(false);
               {item.role === 'assistant' && item.interrupted ? (
                 <Text style={styles.metaText}>{i18n('chat.interrupted')}</Text>
               ) : null}
-              {item.role === 'assistant' && item.stats ? (
-                <Text style={styles.metaText}>{item.stats}</Text>
+              {item.role === 'assistant' && (item.stats || item.content) ? (
+                <View style={styles.metaRow}>
+                  {item.stats ? <Text style={styles.metaText}>{item.stats}</Text> : null}
+                  {item.content ? (
+                    <Pressable
+                      onPress={() => speakMessage(item.id, item.content)}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        speakingId === item.id ? i18n('chat.stopSpeak') : i18n('chat.speak')
+                      }
+                    >
+                      <Text style={styles.speakBtn}>{speakingId === item.id ? '■' : '▶'}</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
               ) : null}
             </View>
           )}
@@ -860,7 +914,9 @@ const makeStyles = (t: Theme) => StyleSheet.create({
     marginBottom: 8,
     backgroundColor: t.ctaText,
   },
-  metaText: { color: t.textFaint, fontSize: 11, marginTop: 6 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6 },
+  metaText: { color: t.textFaint, fontSize: 11 },
+  speakBtn: { color: t.accentSoft, fontSize: 13, paddingHorizontal: 2 },
   inputBar: {
     flexDirection: 'row',
     padding: 10,

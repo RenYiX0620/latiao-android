@@ -82,6 +82,7 @@ function AppBody({
           {nav === 'chat' && (
             <ChatScreen
               modelPath={modelPath}
+              lang={lang}
               onPickModels={() => setNav('models')}
               onOpenDrawer={() => setDrawerOpen(true)}
               onOpenSettings={() => setNav('settings')}

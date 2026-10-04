@@ -146,6 +146,8 @@ export type PrefsExt = Prefs & {
   themeMode: 'dark' | 'light' | 'system';
   /** 界面语言（默认中文；没接系统 locale 探测，避免依赖原生模块） */
   lang: 'zh' | 'en';
+  /** 助手回复完成后自动朗读（系统 TTS） */
+  ttsAutoSpeak: boolean;
 };
 
 export const DEFAULT_PREFS_EXT: PrefsExt = {
@@ -167,6 +169,7 @@ export const DEFAULT_PREFS_EXT: PrefsExt = {
   modelParams: {},
   themeMode: 'system',
   lang: 'zh',
+  ttsAutoSpeak: false,
 };
 
 /**

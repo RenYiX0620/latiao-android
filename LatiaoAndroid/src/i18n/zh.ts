@@ -169,6 +169,16 @@ export const zh = {
   'model.memOk': '✓ 约需 {total}GB 可用内存 {note}',
 
   // ── 设置页 ─────────────────────────────────────────
+  'settings.tts': '朗读',
+  'settings.ttsHint': '用系统语音把助手回复读出来（离线、不联网；换成更好的本地语音是后续计划）',
+  'settings.ttsAuto': '回复完成后自动朗读',
+  'settings.ttsSample': '你好，我是辣条，现在我用系统语音读这句话。',
+  'settings.ttsTry': '试听',
+  'settings.ttsChecking': '正在检查系统语音…',
+  'settings.ttsReady': '可用：{engine}',
+  'settings.ttsUnavailable': '不可用：{reason}',
+  'chat.speak': '朗读这条',
+  'chat.stopSpeak': '停止朗读',
   'settings.title': '设置',
   'settings.topHint': '参数改动点保存；GPU/线程/上下文在下次「加载模型」时生效',
   'settings.appearance': '外观',

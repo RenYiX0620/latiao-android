@@ -1,30 +1,35 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useTheme, type Theme } from '../theme';
+import { useT, type MsgKey } from '../i18n';
 
 /**
  * 首次引导（简版，对标 PocketPal Onboarding）—— 三步：
  * 欢迎 → 下载模型 → 开始聊天。只在 onboarded=false 时弹出。
  */
 
-const STEPS = [
+const STEPS: { icon: string; title: MsgKey; body: MsgKey }[] = [
   {
     icon: '🛸',
-    title: '欢迎使用辣条手机版',
-    body: '本地运行 AI 模型，对话不出手机。无需账号，离线可用。',
+    title: 'onboarding.s1.title',
+    body: 'onboarding.s1.body',
   },
   {
     icon: '📦',
-    title: '先下载一个模型',
-    body: '到「模型」页从内置精选或 Hugging Face 下载 GGUF；也可以导入手机里已有的 .gguf 文件。',
+    title: 'onboarding.s2.title',
+    body: 'onboarding.s2.body',
   },
   {
     icon: '💬',
-    title: '加载后就能聊',
-    body: '点「加载」把模型装进内存，然后直接问问题、或让它用工具干活。',
+    title: 'onboarding.s3.title',
+    body: 'onboarding.s3.body',
   },
 ];
 
 export default function Onboarding({ onDone }: { onDone: () => void }) {
+  const i18n = useT();
+  const t = useTheme();
+  const styles = useMemo(() => makeStyles(t), [t]);
   const [step, setStep] = useState(0);
   const s = STEPS[step];
   return (
@@ -32,8 +37,8 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
       <View style={styles.wrap}>
         <View style={styles.card}>
           <Text style={styles.icon}>{s.icon}</Text>
-          <Text style={styles.title}>{s.title}</Text>
-          <Text style={styles.body}>{s.body}</Text>
+          <Text style={styles.title}>{i18n(s.title)}</Text>
+          <Text style={styles.body}>{i18n(s.body)}</Text>
           <View style={styles.dots}>
             {STEPS.map((_, i) => (
               <View key={i} style={[styles.dot, i === step && styles.dotOn]} />
@@ -50,12 +55,12 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
             }}
           >
             <Text style={styles.btnText}>
-              {step < STEPS.length - 1 ? '下一步' : '开始使用'}
+              {step < STEPS.length - 1 ? i18n('onboarding.next') : i18n('onboarding.start')}
             </Text>
           </Pressable>
           {step > 0 && (
             <Pressable onPress={() => setStep(step - 1)}>
-              <Text style={styles.back}>返回</Text>
+              <Text style={styles.back}>{i18n('onboarding.back')}</Text>
             </Pressable>
           )}
         </View>
@@ -64,16 +69,16 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: Theme) => StyleSheet.create({
   wrap: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.82)',
+    backgroundColor: t.scrim,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 28,
   },
   card: {
-    backgroundColor: '#1a1a1e',
+    backgroundColor: t.surface,
     borderRadius: 18,
     padding: 28,
     width: '100%',
@@ -81,19 +86,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   icon: { fontSize: 56, marginBottom: 16 },
-  title: { color: '#eee', fontSize: 19, fontWeight: '700', textAlign: 'center', marginBottom: 12 },
-  body: { color: '#aaa', fontSize: 14, lineHeight: 22, textAlign: 'center', marginBottom: 20 },
+  title: { color: t.text, fontSize: 19, fontWeight: '700', textAlign: 'center', marginBottom: 12 },
+  body: { color: t.textDim, fontSize: 14, lineHeight: 22, textAlign: 'center', marginBottom: 20 },
   dots: { flexDirection: 'row', gap: 6, marginBottom: 18 },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#444' },
-  dotOn: { backgroundColor: '#2f6f6a', width: 18 },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: t.switchOff },
+  dotOn: { backgroundColor: t.accent, width: 18 },
   btn: {
-    backgroundColor: '#2f6f6a',
+    backgroundColor: t.accent,
     borderRadius: 12,
     paddingVertical: 13,
     paddingHorizontal: 40,
     width: '100%',
     alignItems: 'center',
   },
-  btnText: { color: '#fff', fontWeight: '600', fontSize: 15 },
-  back: { color: '#777', marginTop: 12, fontSize: 13 },
+  btnText: { color: t.accentText, fontWeight: '600', fontSize: 15 },
+  back: { color: t.textDim, marginTop: 12, fontSize: 13 },
 });

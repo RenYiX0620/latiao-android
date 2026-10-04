@@ -62,6 +62,7 @@ export async function listLocalModels(): Promise<string[]> {
 export async function downloadModel(
   entry: ModelEntry,
   onProgress?: DownloadProgress,
+  onJob?: (job: DownloadJob) => void,
 ): Promise<string> {
   await ensureModelsDir();
   const dest = localPathFor(entry);
@@ -69,7 +70,7 @@ export async function downloadModel(
   let lastErr: Error = new Error('下载失败');
   for (const url of resolveUrls(entry)) {
     try {
-      const result = await RNFS.downloadFile({
+      const job = RNFS.downloadFile({
         fromUrl: url,
         toFile: dest,
         background: false,
@@ -83,7 +84,9 @@ export async function downloadModel(
             );
           }
         },
-      }).promise;
+      });
+      onJob?.({ jobId: job.jobId });
+      const result = await job.promise;
 
       if (result.statusCode === 200 || result.statusCode === 0) {
         const stat = await RNFS.stat(dest);
@@ -157,27 +160,120 @@ export function hfFileUrl(repo: string, file: string): string {
   return `https://hf-mirror.com/${repo}/resolve/main/${file}`;
 }
 
-/** 下载任意 repo 的指定 gguf 文件 */
+/** 带超时的 fetch（网络工具卡住时不能让整个流程悬着） */
+async function fetchWithTimeout(url: string, ms = 20000): Promise<Response> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms);
+  try {
+    return await fetch(url, { signal: ctl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export type RepoFile = { path: string; size: number; shard: boolean };
+
+/** 列出仓库里的 gguf（含体积）：镜像优先、官方兜底 */
+export async function listRepoGguf(repo: string): Promise<RepoFile[]> {
+  let lastErr = '仓库不可达';
+  for (const host of HF_HOSTS) {
+    try {
+      const r = await fetchWithTimeout(`${host}/api/models/${repo}/tree/main`);
+      if (!r.ok) {
+        lastErr = `HTTP ${r.status}`;
+        continue;
+      }
+      const arr = (await r.json()) as Array<{ type?: string; path?: string; size?: number }>;
+      if (!Array.isArray(arr)) {
+        lastErr = '返回格式异常（可能是受限仓库）';
+        continue;
+      }
+      return arr
+        .filter(x => x.type === 'file' && /\.gguf$/i.test(x.path ?? ''))
+        .map(x => ({
+          path: x.path ?? '',
+          size: x.size ?? 0,
+          shard: /-\d{5}-of-\d{5}\.gguf$/i.test(x.path ?? ''),
+        }))
+        .sort((a, b) => a.size - b.size);
+    } catch (e) {
+      lastErr = String(e);
+    }
+  }
+  throw new Error(`拿不到文件列表：${lastErr}`);
+}
+
+/** 下载前先看有没有空间（省得下到一半失败留下半截文件） */
+export async function assertSpace(bytes: number): Promise<void> {
+  if (!bytes || bytes <= 0) {
+    return;
+  }
+  try {
+    const info = await RNFS.getFSInfo();
+    const need = bytes * 1.08;
+    if (info.freeSpace < need) {
+      throw new Error(
+        `存储空间不足：需要 ${(need / 1e9).toFixed(2)}GB，剩余 ${(info.freeSpace / 1e9).toFixed(2)}GB`,
+      );
+    }
+  } catch (e) {
+    if (String(e).includes('存储空间不足')) {
+      throw e;
+    }
+    // 拿不到磁盘信息就放行，别把下载挡死
+  }
+}
+
+/** 跨仓库也不撞名的落盘文件名 */
+export function filenameFor(repo: string, file: string): string {
+  const base = file.split('/').pop() ?? 'model.gguf';
+  const owner = repo.split('/')[0]?.replace(/[^\w.-]/g, '') ?? 'hf';
+  return `${owner}-${base}`;
+}
+
+/** 搜索下载的落盘路径（下载与「取消清理」用同一份计算，避免两边算错） */
+export function localPathForRepo(repo: string, file: string): string {
+  return `${MODELS_DIR}/${filenameFor(repo, file)}`;
+}
+
+export type DownloadJob = { jobId: number };
+
+/** 下载任意 repo 的指定 gguf 文件（镜像优先 + 官方兜底，可取消） */
 export async function downloadGguf(
   repo: string,
   file: string,
   onProgress?: DownloadProgress,
+  onJob?: (job: DownloadJob) => void,
 ): Promise<string> {
   await ensureModelsDir();
-  const dest = `${MODELS_DIR}/${file.split('/').pop() ?? 'model.gguf'}`;
-  const result = await RNFS.downloadFile({
-    fromUrl: hfFileUrl(repo, file),
-    toFile: dest,
-    progressDivider: 2,
-    progress: res => {
-      if (onProgress && res.contentLength > 0) {
-        onProgress(res.bytesWritten / res.contentLength, res.bytesWritten, res.contentLength);
+  const dest = localPathForRepo(repo, file);
+  let lastErr: Error = new Error('下载失败');
+  for (const host of HF_HOSTS) {
+    try {
+      const job = RNFS.downloadFile({
+        fromUrl: `${host}/${repo}/resolve/main/${file}`,
+        toFile: dest,
+        progressDivider: 2,
+        progress: res => {
+          if (onProgress && res.contentLength > 0) {
+            onProgress(res.bytesWritten / res.contentLength, res.bytesWritten, res.contentLength);
+          }
+        },
+      });
+      onJob?.({ jobId: job.jobId });
+      const result = await job.promise;
+      if (result.statusCode === 200 || result.statusCode === 0) {
+        const stat = await RNFS.stat(dest);
+        if (stat.size > 1024 * 1024) {
+          return dest;
+        }
+        throw new Error('文件过小，疑似下载不完整');
       }
-    },
-  }).promise;
-  if (result.statusCode !== 200) {
-    await RNFS.unlink(dest).catch(() => undefined);
-    throw new Error(`下载失败 HTTP ${result.statusCode}`);
+      lastErr = new Error(`HTTP ${result.statusCode} @ ${host}`);
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e));
+      await RNFS.unlink(dest).catch(() => undefined);
+    }
   }
-  return dest;
+  throw lastErr;
 }

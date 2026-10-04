@@ -1,11 +1,9 @@
 import DocumentPicker, { isCancel } from 'react-native-document-picker';
 import {
-  listFiles as scopedListFiles,
   openDocument as scopedOpenDocument,
   openDocumentTree as scopedOpenDocumentTree,
 } from 'react-native-scoped-storage';
 import RNFS from 'react-native-fs';
-import { ensureModelsDir, MODELS_DIR } from './download';
 
 /**
  * 本地模型导入（2026-09-30 加固）：

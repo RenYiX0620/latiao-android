@@ -49,6 +49,25 @@ export async function unregisterModel(path: string): Promise<void> {
   await RNFS.writeFile(REGISTRY, JSON.stringify(list), 'utf8');
 }
 
+/**
+ * 能不能当文件路径用。
+ * Android 的文件选择器经常只给 content:// 链接（Download 目录尤其如此，其 document id
+ * 形如 `msf%3A1000152862`）——那不是文件系统路径，登记它等于登记一个打不开的路径：
+ * 加载时只会得到一句 Unknown error（旧版）或"找不到这个模型文件"（新版预检）。
+ */
+export function isUsableFilePath(p: string): boolean {
+  if (!p || !p.startsWith('/')) {
+    return false;
+  }
+  if (/^\/content:/i.test(p)) {
+    return false;
+  }
+  if (/%3A|%2F/i.test(p)) {
+    return false;
+  }
+  return true;
+}
+
 /** 放宽：文件名含 gguf 即可；无后缀的大文件也收（用户自选文件时） */
 function looksLikeModel(name: string): boolean {
   return /\.gguf$/i.test(name) || /gguf/i.test(name);
@@ -64,39 +83,51 @@ export async function importGgufFiles(): Promise<ImportResult> {
     const name = f.name || (f.path || f.uri || '').split('/').pop() || 'model.gguf';
     const raw = (f.path && f.path !== 'undefined' ? f.path : f.uri) || '';
     const path = toRealPath(raw);
-    if (!looksLikeModel(name)) {
-      // 仍接受：用户自己选的文件（可能是 Spark-xxx 无 .gguf 后缀）
-      // 但要在结果里标注
+    if (isUsableFilePath(path)) {
+      await registerModel(name, path);
+      return { imported: [path], skipped: [] };
     }
-    await registerModel(name, path);
-    return { imported: [path], skipped: [] };
+    // 系统只给了链接 → 退回"复制进沙箱"这条路，别登记打不开的路径
+    return await importByCopy(
+      '系统只给了文件链接（content://），已改为复制一份到 App 沙箱',
+    );
   } catch (e) {
     if (isCancel(e)) {
       return { imported: [], skipped: [] };
     }
-    // scoped-storage 失败则退回 document-picker（小文件）
-    try {
-      const res = await DocumentPicker.pickSingle({
-        allowMultiSelection: false,
-        type: ['*/*', 'application/octet-stream'],
-      });
-      const name = res.name ?? 'model.gguf';
-      const uri = (res.fileCopyUri ?? res.uri ?? '').replace('file://', '');
-      if (!uri) {
-        return { imported: [], skipped: [], error: '未获得文件路径' };
-      }
-      await registerModel(name, uri);
-      return { imported: [uri], skipped: [] };
-    } catch (e2) {
-      if (isCancel(e2)) {
-        return { imported: [], skipped: [] };
-      }
-      return {
-        imported: [],
-        skipped: [],
-        error: `选择文件失败：${String(e2 || e).slice(0, 120)}`,
-      };
+    return await importByCopy(
+      '这个选择器拿不到真实路径，已改为复制一份到 App 沙箱',
+    );
+  }
+}
+
+/** 兜底导入：让 document-picker 复制进沙箱，换一个真路径 */
+async function importByCopy(hint: string): Promise<ImportResult> {
+  const pathHint =
+    '也可以点「授权文件访问」开启所有文件权限后，用「按路径导入」填 /sdcard/Download/models/xxx.gguf（大模型推荐这条，不占双份空间）';
+  try {
+    const res = await DocumentPicker.pickSingle({
+      allowMultiSelection: false,
+      copyTo: 'documentDirectory',
+      type: ['*/*', 'application/octet-stream'],
+    });
+    const name = res.name ?? 'model.gguf';
+    const uri = res.fileCopyUri ?? res.uri ?? '';
+    const path = uri.startsWith('file://') ? uri.slice(7) : uri;
+    if (!isUsableFilePath(path)) {
+      return { imported: [], skipped: [], error: `${hint}，但复制后仍拿不到真路径。${pathHint}` };
     }
+    await registerModel(name, path);
+    return { imported: [path], skipped: [], error: `${hint}：${name}` };
+  } catch (e) {
+    if (isCancel(e)) {
+      return { imported: [], skipped: [] };
+    }
+    return {
+      imported: [],
+      skipped: [],
+      error: `${hint}也没成功（${String(e).slice(0, 80)}）。${pathHint}`,
+    };
   }
 }
 

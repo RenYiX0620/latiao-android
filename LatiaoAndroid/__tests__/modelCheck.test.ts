@@ -7,6 +7,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import RNFS from 'react-native-fs';
 import { checkModelFile, loadFailureHint } from '../src/models/modelCheck';
 import { downloadModel } from '../src/models/download';
+import { isUsableFilePath } from '../src/models/importLocal';
 
 const FS = (RNFS as unknown as {
   __fs: {
@@ -122,5 +123,29 @@ describe('下载完整性（截断不再当成功）', () => {
     };
     const path = await downloadModel(entry);
     expect(path).toContain('qwen2.5-0.5b-instruct-q4_k_m.gguf');
+  });
+});
+
+describe('content:// 链接不能当路径（用户实测踩到的坑）', () => {
+  it('isUsableFilePath 只认绝对路径', () => {
+    expect(isUsableFilePath('/sdcard/Download/models/a.gguf')).toBe(true);
+    expect(isUsableFilePath('/data/user/0/com.latiaoandroid/files/models/a.gguf')).toBe(true);
+    expect(isUsableFilePath('content://com.android.providers.downloads.documents/document/msf%3A1000152862')).toBe(false);
+    expect(isUsableFilePath('document%3A1000152862')).toBe(false);
+    expect(isUsableFilePath('file:///sdcard/a.gguf')).toBe(false);
+    expect(isUsableFilePath('')).toBe(false);
+  });
+
+  it('预检把链接报成 bad-path，并且给的是"怎么重新导入"的步骤', async () => {
+    const r = await checkModelFile(
+      'content://com.android.providers.downloads.documents/document/msf%3A1000152862',
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.kind).toBe('bad-path');
+      expect(r.reason).toContain('content');
+      expect(r.nextSteps).toContain('按路径导入');
+      expect(r.nextSteps).toContain('选择模型文件');
+    }
   });
 });

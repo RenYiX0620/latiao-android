@@ -1,4 +1,5 @@
 import RNFS from 'react-native-fs';
+import { isUsableFilePath } from './importLocal';
 
 /**
  * 加载前预检 —— 把 llama.rn 那句没头没尾的「Unknown error」翻译成能行动的结论。
@@ -14,7 +15,7 @@ export type ModelCheck =
   | { ok: true; sizeBytes: number }
   | {
       ok: false;
-      kind: 'missing' | 'unreadable' | 'not-gguf' | 'too-small';
+      kind: 'bad-path' | 'missing' | 'unreadable' | 'not-gguf' | 'too-small';
       reason: string;
       nextSteps: string;
     };
@@ -30,6 +31,18 @@ export async function checkModelFile(path: string): Promise<ModelCheck> {
       kind: 'missing',
       reason: '没有选择模型文件',
       nextSteps: '到「模型」页选一个模型',
+    };
+  }
+
+  // Android 的文件选择器常给 content:// 链接（Download 目录的 document id 形如
+  // `msf%3A1000152862`）。那不是文件路径，先在这里拦下来，别让它变成"找不到文件"。
+  if (!isUsableFilePath(path)) {
+    return {
+      ok: false,
+      kind: 'bad-path',
+      reason: '这个"路径"是系统「文件」给的链接（content://…），不是真实文件路径',
+      nextSteps:
+        '到「模型」页：点「选择模型文件」重新选一次（会自动复制一份到 App 沙箱）；或先点「授权文件访问」开启所有文件权限，再用「按路径导入」填 /sdcard/Download/models/xxx.gguf',
     };
   }
 
